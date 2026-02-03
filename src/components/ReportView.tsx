@@ -28,7 +28,7 @@ export default function ReportView({ data }: ReportViewProps) {
              </h2>
          </div>
          <div className="flex items-center gap-4 mt-4 md:mt-0 font-mono text-xs text-gray-400">
-             <span>ID: {structure.id || 'N/A'}</span>
+             <span>ID: {structure?.id || 'N/A'}</span>
              <span>|</span>
              <span>{new Date(data.timestamp).toLocaleDateString()}</span>
          </div>
@@ -43,20 +43,32 @@ export default function ReportView({ data }: ReportViewProps) {
              <div className="absolute inset-0 opacity-20 bg-[url('https://cdn.rcsb.org/images/structures/boundary.png')] bg-cover bg-center mix-blend-overlay transition-transform duration-[10s] ease-linear group-hover:scale-110" />
              
              <div className="relative z-10 h-full flex flex-col justify-between p-8">
-                 <div className="flex justify-between items-start">
-                    <span className="glass-light px-3 py-1 text-xs font-mono uppercase text-white rounded-full border border-white/10">
-                        {structure.source} Model
-                    </span>
-                    <Hexagon className="text-primary w-6 h-6 animate-pulse opacity-50"/>
-                 </div>
-                 
-                 <div>
-                    <h3 className="text-2xl font-light text-white mb-2">Structural Context</h3>
-                    <p className="text-foreground-muted text-sm max-w-xs">{structure.resolution ? `Resolution: ${structure.resolution}Å` : 'Predicted confidence metric unavailable.'}</p>
-                    <button className="mt-6 border border-white/20 hover:bg-white hover:text-black hover:border-white text-white px-6 py-2 text-xs font-mono uppercase tracking-widest transition-all rounded-full">
-                        Launch Viewer
-                    </button>
-                 </div>
+                 {structure ? (
+                   <>
+                     <div className="flex justify-between items-start">
+                        <span className="glass-light px-3 py-1 text-xs font-mono uppercase text-white rounded-full border border-white/10">
+                            {structure.source} Model
+                        </span>
+                        <Hexagon className="text-primary w-6 h-6 animate-pulse opacity-50"/>
+                     </div>
+                     
+                     <div>
+                        <h3 className="text-2xl font-light text-white mb-2">Structural Context</h3>
+                        <p className="text-foreground-muted text-sm max-w-xs">{structure.resolution ? `Resolution: ${structure.resolution}Å` : 'Predicted confidence metric unavailable.'}</p>
+                        <button className="mt-6 border border-white/20 hover:bg-white hover:text-black hover:border-white text-white px-6 py-2 text-xs font-mono uppercase tracking-widest transition-all rounded-full">
+                            Launch Viewer
+                        </button>
+                     </div>
+                   </>
+                 ) : (
+                   <div className="flex flex-col items-center justify-center h-full text-center">
+                      <AlertTriangle className="text-yellow-500 w-12 h-12 mb-4" />
+                      <h3 className="text-xl text-white mb-2">Structure Unavailable</h3>
+                      <p className="text-foreground-muted text-sm max-w-xs">
+                        No 3D model found for this variant/gene. Displaying text-only analysis.
+                      </p>
+                   </div>
+                 )}
              </div>
         </div>
 

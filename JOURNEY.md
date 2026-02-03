@@ -61,5 +61,12 @@
 ---
 
 ## Environment
-- `.env.local`: `OPENROUTER_API_KEY`, `LOCAL_LLM_URL`
-- `llm-config.ts`: Fallback chain (Gemini → Llama → Mistral → Ollama)
+- `.env.local`: `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `LLM_PROVIDER`
+- `llm-config.ts`: Fallback chain (OpenRouter → Ollama → Gemini 2.5 Pro)
+
+### Session 5: 2026-02-04 (Resilience & Hardening)
+- **Feature:** Multi-Provider Fallback implemented (OpenRouter -> Gemini).
+- **Upgrade:** Switched to **Gemini 2.5 Pro** model.
+- **Fix:** Decoupled Structure from Analysis (unmapped genes like `AKT1` no longer crash the app).
+- **Fix:** Frontend `ReportView` explicitly handles null structure data.
+- **Validation:** 10-variant real-world suite verified structure resolution logic.

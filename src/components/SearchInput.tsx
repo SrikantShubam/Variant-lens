@@ -16,8 +16,8 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
   const [isFocused, setIsFocused] = useState(false);
 
   const validateHGVS = (input: string) => {
-    // Basic regex for HGVS (p., c., g.)
-    const regex = /^[A-Z0-9]+:p\.[A-Z][a-z]{2}\d+[A-Z][a-z]{2}$|^p\.[A-Z][a-z]{2}\d+[A-Z][a-z]{2}$/i;
+    // Basic regex for HGVS (p., c., g.) - supports 1-letter and 3-letter codes
+    const regex = /^[A-Z0-9]+:p\.([A-Z][a-z]{2}|[A-Z])\d+([A-Z][a-z]{2}|[A-Z]|\*)$|^p\.([A-Z][a-z]{2}|[A-Z])\d+([A-Z][a-z]{2}|[A-Z]|\*)$/i;
     const valid = regex.test(input.trim());
     setIsValid(valid);
   };

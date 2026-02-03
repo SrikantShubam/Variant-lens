@@ -76,7 +76,7 @@ export class RateLimiter {
 // Global instances for different endpoints
 export const variantRateLimiter = new RateLimiter({
   windowMs: 60 * 1000, // 1 minute
-  maxRequests: 10,
+  maxRequests: 100,
 });
 
 export const batchRateLimiter = new RateLimiter({

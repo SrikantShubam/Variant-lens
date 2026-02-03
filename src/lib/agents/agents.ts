@@ -1,20 +1,8 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
+import { withRetry, getFallbackConfig } from '../llm-config';
 
-// OpenRouter uses OpenAI-compatible API
-export const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY,
-  baseURL: 'https://openrouter.ai/api/v1',
-  defaultHeaders: {
-    'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000',
-    'X-Title': 'VariantLens',
-  },
-});
-
-// Default model for OpenRouter
-const DEFAULT_MODEL = 'google/gemini-flash-1.5:free';
-
-// Schemas for structured output
+// Schemas
 const ContextSchema = z.object({
   gene_function: z.string().max(200),
   domain_context: z.string().max(200),
@@ -41,6 +29,85 @@ const CriticSchema = z.object({
   final_confidence: z.enum(['high', 'moderate', 'low', 'uncertain']),
 });
 
+// Helper: Call LLM with Failover
+async function generateWithFallback(
+  messages: any[],
+  temperature: number = 0.2
+): Promise<any> {
+  return withRetry(async (provider) => {
+    console.log(`Using provider: ${provider.name} (${provider.model})`);
+
+    if (provider.name === 'openrouter') {
+      const client = new OpenAI({
+        apiKey: provider.apiKey,
+        baseURL: provider.baseUrl,
+        defaultHeaders: {
+          'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000',
+          'X-Title': 'VariantLens',
+        },
+      });
+
+      const response = await client.chat.completions.create({
+        model: provider.model || 'meta-llama/llama-3.3-70b-instruct:free',
+        messages,
+        temperature,
+        response_format: { type: 'json_object' },
+      });
+
+      const content = response.choices[0].message.content || '{}';
+      return JSON.parse(content);
+
+    } else if (provider.name === 'gemini') {
+      // Gemini REST API Fallback
+      let systemInfo = '';
+      const contents = [];
+      
+      for (const m of messages) {
+        if (m.role === 'system') {
+          systemInfo += m.content + '\n';
+        } else {
+          contents.push({
+            role: m.role === 'user' ? 'user' : 'model',
+            parts: [{ text: m.content }]
+          });
+        }
+      }
+
+      // Prepend system info to first user message
+      if (systemInfo && contents.length > 0) {
+        const firstUser = contents.find(c => c.role === 'user');
+        if (firstUser) {
+          firstUser.parts[0].text = `System: ${systemInfo}\n\n${firstUser.parts[0].text}`;
+        }
+      }
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${provider.apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          generationConfig: {
+            temperature,
+            responseMimeType: 'application/json'
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`Gemini API Error: ${response.status} - ${err}`);
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      return JSON.parse(text);
+    }
+    
+    throw new Error(`Unknown provider: ${provider.name}`);
+  }, getFallbackConfig());
+}
+
 export class ContextAgent {
   async run(variant: string, uniprotData: any, clinvarData: any): Promise<z.infer<typeof ContextSchema>> {
     const prompt = `
@@ -58,21 +125,28 @@ Provide JSON with:
 - confidence: Your confidence in this context assessment
 `;
 
-    const response = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a precise bioinformatics curator. Summarize biological context using only provided data. Never infer beyond evidence. Flag missing information.'
-        },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.1,
-      response_format: { type: 'json_object' },
-    });
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are a precise bioinformatics curator. Summarize biological context using only provided data. Never infer beyond evidence. Flag missing information.'
+      },
+      { role: 'user', content: prompt }
+    ];
 
-    const content = response.choices[0].message.content || '{}';
-    return ContextSchema.parse(JSON.parse(content));
+    try {
+      const json = await generateWithFallback(messages, 0.1);
+      return ContextSchema.parse(json);
+    } catch (e) {
+      console.error('ContextAgent failed:', e);
+      // Return safe fallback to allow pipeline to continue
+      return {
+        gene_function: 'Context analysis failed',
+        domain_context: 'Unknown',
+        known_annotations: [],
+        clinvar_summary: null,
+        confidence: 'low'
+      };
+    }
   }
 }
 
@@ -100,21 +174,26 @@ Rules:
 Provide JSON with hypothesis, structural_basis, confidence, and reasoning_chain.
 `;
 
-    const response = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a structural biologist explaining protein variants to graduate students. Be cautious, specific, and acknowledge uncertainty.'
-        },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-    });
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are a structural biologist explaining protein variants to graduate students. Be cautious, specific, and acknowledge uncertainty.'
+      },
+      { role: 'user', content: prompt }
+    ];
 
-    const content = response.choices[0].message.content || '{}';
-    return HypothesisSchema.parse(JSON.parse(content));
+    try {
+      const json = await generateWithFallback(messages, 0.2);
+      return HypothesisSchema.parse(json);
+    } catch (e) {
+      console.error('MechanismAgent failed:', e);
+      return {
+        hypothesis: 'Mechanism analysis unavailable due to API limits.',
+        structural_basis: [],
+        confidence: 'low',
+        reasoning_chain: []
+      };
+    }
   }
 }
 
@@ -140,20 +219,25 @@ Downgrade confidence if key claims lack support.
 Provide JSON with citations_validated, hallucination_flags, uncertainty_acknowledged, final_confidence.
 `;
 
-    const response = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a scientific integrity reviewer. Be strict about citations and uncertainty.'
-        },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.0,
-      response_format: { type: 'json_object' },
-    });
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are a scientific integrity reviewer. Be strict about citations and uncertainty.'
+      },
+      { role: 'user', content: prompt }
+    ];
 
-    const content = response.choices[0].message.content || '{}';
-    return CriticSchema.parse(JSON.parse(content));
+    try {
+      const json = await generateWithFallback(messages, 0.0);
+      return CriticSchema.parse(json);
+    } catch (e) {
+      console.error('CriticAgent failed:', e);
+      return {
+        citations_validated: [],
+        hallucination_flags: ['Review incomplete due to API failure'],
+        uncertainty_acknowledged: true,
+        final_confidence: 'low'
+      };
+    }
   }
 }

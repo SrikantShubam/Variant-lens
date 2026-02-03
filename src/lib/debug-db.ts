@@ -35,18 +35,16 @@ async function checkPDB() {
 }
 
 async function checkAF() {
-  console.log('\nChecking AlphaFold API...');
-  try {
-    const res = await fetch(AF_URL);
-    console.log(`AlphaFold Status: ${res.status}`);
-    if (!res.ok) console.error(await res.text());
-    else {
-        const data = await res.json();
-        console.log(`AlphaFold Data: ${JSON.stringify(data).slice(0, 100)}...`);
+    // Test user failure case
+    const inputs = ['BRCA1', 'TP53'];
+    
+    for (const input of inputs) {
+        if (!input) continue;
+        console.log(`\nChecking AlphaFold API for '${input}'...`);
+        const res = await fetch(`${AF_URL.replace('P04637', '')}${input}`);
+        console.log(`Status: ${res.status}`);
+        if (!res.ok) console.error(await res.text().catch(() => 'No body'));
     }
-  } catch (err) {
-    console.error('AlphaFold Connection Failed:', err);
-  }
 }
 
 (async () => {

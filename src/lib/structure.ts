@@ -166,7 +166,7 @@ export class AlphaFoldResolver {
       const response = await fetch(`${this.baseUrl}/${uniprotId}`);
       
       if (!response.ok) {
-        if (response.status === 404) {
+        if (response.status === 404 || response.status === 400) {
           throw new Error(`AlphaFold structure not found for ${uniprotId}`);
         }
         throw new Error(`AlphaFold API error: ${response.status}`);
@@ -188,19 +188,38 @@ export class AlphaFoldResolver {
       return structure;
 
     } catch (error) {
+      if ((error as Error).message.includes('not found')) {
+         throw error; // Propagate "not found" to route handler
+      }
       console.error('AlphaFold resolution failed:', error);
       throw new Error('AlphaFold DB unavailable');
     }
   }
 }
 
+const COMMON_GENES: Record<string, string> = {
+  'BRCA1': 'P38398',
+  'BRCA2': 'P51587',
+  'TP53': 'P04637',
+  'EGFR': 'P00533',
+  'CFTR': 'P13569',
+  'BRAF': 'P15056',
+  'KRAS': 'P01116',
+  'PIK3CA': 'P42336',
+  'IDH1': 'O75874',
+  'IDH2': 'P48735',
+};
+
 export async function resolveStructure(
   uniprotId: string, 
   residueNumber?: number
-): Promise<StructureData> {
+): Promise<StructureData | null> {
+  // Map gene name to UniProt ID if possible
+  const mappedId = COMMON_GENES[uniprotId.toUpperCase()] || uniprotId;
+
   // Try PDB first
   const pdbResolver = new PDBResolver();
-  const pdbResult = await pdbResolver.resolve(uniprotId, residueNumber);
+  const pdbResult = await pdbResolver.resolve(mappedId, residueNumber);
   
   if (pdbResult) {
     return pdbResult;
@@ -208,7 +227,12 @@ export async function resolveStructure(
 
   // Fallback to AlphaFold
   const afResolver = new AlphaFoldResolver();
-  return await afResolver.resolve(uniprotId);
+  try {
+    return await afResolver.resolve(mappedId);
+  } catch (e) {
+    console.warn(`Structure resolution failed for ${mappedId}:`, e);
+    return null;
+  }
 }
 
 // Cache utilities

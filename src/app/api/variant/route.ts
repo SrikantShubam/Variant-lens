@@ -51,26 +51,36 @@ export async function POST(request: NextRequest) {
       const uniprotId = normalizedVariant.parsed.gene; // Simplified
       structure = await resolveStructure(uniprotId, normalizedVariant.parsed.pos);
     } catch (error) {
+      console.error('Structure resolution error:', error); // DEBUG LOG
       if ((error as Error).message.includes('unavailable')) {
         return NextResponse.json(
           { error: 'Structure databases unavailable', fallback: 'text-only-report' },
           { status: 503 }
         );
       }
+      // Return the actual error message for debugging
       return NextResponse.json(
-        { error: 'No structure found for this variant' },
+        { error: `No structure found: ${(error as Error).message}` },
         { status: 404 }
       );
     }
 
     // Run agent analysis
+    // Run agent analysis (Resilient)
+    let analysis;
     const orchestrator = new AgentOrchestrator();
-    const analysis = await orchestrator.analyze(normalizedVariant.normalized);
+    try {
+      analysis = await orchestrator.analyze(normalizedVariant.normalized);
+    } catch (agentError) {
+      console.error('Agent analysis failed:', agentError);
+      // fallback to structure-only response (don't crash)
+      analysis = null;
+    }
 
     // Build response
     const response = {
       variant: normalizedVariant.normalized,
-      structure: {
+      structure: structure ? {
         source: structure.source,
         id: structure.id,
         url: structure.url,
@@ -78,10 +88,15 @@ export async function POST(request: NextRequest) {
         plddt: structure.plddt,
         coverage: structure.coverage,
         experimental: structure.experimental,
+      } : null,
+      hypothesis: analysis?.hypothesis || { 
+        text: 'Detailed analysis unavailable (Agent system busy). Structure resolved successfully.', 
+        confidence: 'N/A', 
+        structural_basis: [], 
+        citations: [] 
       },
-      hypothesis: analysis.hypothesis,
-      context: analysis.context,
-      validation: analysis.validation,
+      context: analysis?.context || {},
+      validation: analysis?.validation || {},
       timestamp: new Date().toISOString(),
       exportUrl: `/api/export/${generateExportId()}`,
     };

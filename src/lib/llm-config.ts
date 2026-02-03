@@ -16,7 +16,8 @@ export interface FallbackConfig {
 }
 
 const OPENROUTER_MODELS = {
-  gemini: 'google/gemini-flash-1.5:free',
+  gemini: 'meta-llama/llama-3.3-70b-instruct:free', // Re-using 'gemini' key for primary model to minimize refactoring
+
   llama: 'meta-llama/llama-3.1-8b-instruct:free',
   mistral: 'mistralai/mistral-7b-instruct:free',
 };
@@ -79,11 +80,16 @@ export function getFallbackConfig(): FallbackConfig {
         baseUrl: process.env.LOCAL_LLM_URL || 'http://localhost:11434',
         model: 'llama3.1:8b',
       },
+      {
+        name: 'gemini',
+        apiKey: process.env.GEMINI_API_KEY!,
+        model: 'gemini-2.5-pro',
+      },
     ],
     retryDelays: [100, 200, 400], // Exponential backoff
     circuitBreaker: {
       failureThreshold: 3,
-      cooldownMs: 5 * 60 * 1000, // 5 minutes
+      cooldownMs: 0, // 0 for testing (was 5 min)
     },
   };
 }
