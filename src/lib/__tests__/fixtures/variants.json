@@ -1,0 +1,31 @@
+{
+    "valid": [
+        {
+            "hgvs": "BRCA1:p.Cys61Gly",
+            "expected": {
+                "gene": "BRCA1",
+                "pos": 61
+            }
+        },
+        {
+            "hgvs": "TP53:p.Arg175His",
+            "expected": {
+                "gene": "TP53",
+                "pos": 175
+            }
+        },
+        {
+            "hgvs": "CFTR:p.Phe508del",
+            "expected": {
+                "gene": "CFTR",
+                "type": "deletion"
+            }
+        }
+    ],
+    "invalid": [
+        "invalid",
+        "BRCA1",
+        "BRCA1:c.61C>G",
+        "BRCA1:p.Xyz123Gly"
+    ]
+}

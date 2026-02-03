@@ -1,0 +1,233 @@
+[
+    {
+        "hgvs": "BRCA1:p.Cys61Gly",
+        "gene": "BRCA1",
+        "uniprotId": "P38398",
+        "variantClass": "pathogenic",
+        "mechanism": "loss-of-function",
+        "expertHypothesis": "The Cys61→Gly substitution removes a zinc-coordinating cysteine in the RING domain. This destabilizes the Zn2+ binding site, impairing E3 ubiquitin ligase activity and subsequent DNA repair recruitment. RING domains require intact zinc coordination for proper folding and function.",
+        "expertConfidence": "high",
+        "keyFeatures": [
+            "Cys61 coordinates Zn2+ with Cys44, Cys47, His80",
+            "Gly lacks thiol group for metal coordination",
+            "RING domain (aa 1-109) requires Zn2+",
+            "BRCA1 RING mutations linked to breast/ovarian cancer"
+        ],
+        "references": [
+            "PMID:19117993",
+            "PMID:21952604"
+        ],
+        "structuralContext": {
+            "preferredSource": "PDB",
+            "pdbId": "1JNX",
+            "resolution": 2.25
+        }
+    },
+    {
+        "hgvs": "BRCA1:p.Arg1699Gln",
+        "gene": "BRCA1",
+        "uniprotId": "P38398",
+        "variantClass": "pathogenic",
+        "mechanism": "loss-of-function",
+        "expertHypothesis": "Arg1699 is located in the BRCT domain and forms critical hydrogen bonds with phosphopeptide ligands. Substitution to Gln removes the positive charge and alters hydrogen bonding pattern, disrupting protein-protein interactions in DNA damage response.",
+        "expertConfidence": "high",
+        "keyFeatures": [
+            "Arg1699 in BRCT domain (aa 1650-1850)",
+            "Critical for phosphoprotein binding",
+            "Gln cannot mimic Arg charge",
+            "Cancer predisposition variant"
+        ],
+        "references": [
+            "PMID:15800622",
+            "PMID:21952604"
+        ],
+        "structuralContext": {
+            "preferredSource": "PDB",
+            "pdbId": "1T29",
+            "resolution": 2.0
+        }
+    },
+    {
+        "hgvs": "TP53:p.Arg175His",
+        "gene": "TP53",
+        "uniprotId": "P04637",
+        "variantClass": "pathogenic",
+        "mechanism": "loss-of-function",
+        "expertHypothesis": "Arg175 is a DNA contact residue in the p53 core domain. Mutation to His disrupts sequence-specific DNA binding by altering electrostatic interactions with the phosphate backbone and minor groove contacts. Also destabilizes the core domain fold.",
+        "expertConfidence": "high",
+        "keyFeatures": [
+            "Arg175 directly contacts DNA",
+            "Located in L2 loop of DNA binding domain",
+            "His cannot form equivalent H-bonds",
+            "Common 'hotspot' mutation in cancer"
+        ],
+        "references": [
+            "PMID:15530374",
+            "PMID:10913266"
+        ],
+        "structuralContext": {
+            "preferredSource": "PDB",
+            "pdbId": "1TUP",
+            "resolution": 2.2
+        }
+    },
+    {
+        "hgvs": "TP53:p.Arg248Gln",
+        "gene": "TP53",
+        "uniprotId": "P04637",
+        "variantClass": "pathogenic",
+        "mechanism": "loss-of-function",
+        "expertHypothesis": "Arg248 is a DNA-binding residue that contacts the minor groove. Mutation to Gln eliminates the positive charge required for phosphate backbone interaction, abolishing sequence-specific DNA binding. This is one of the most frequent p53 mutations in human cancer.",
+        "expertConfidence": "high",
+        "keyFeatures": [
+            "Arg248 in minor groove contact",
+            "Direct DNA binding residue",
+            "Most common p53 mutation",
+            "Total loss of transactivation"
+        ],
+        "references": [
+            "PMID:15530374",
+            "PMID:19561611"
+        ],
+        "structuralContext": {
+            "preferredSource": "PDB",
+            "pdbId": "1TUP",
+            "resolution": 2.2
+        }
+    },
+    {
+        "hgvs": "CFTR:p.Phe508del",
+        "gene": "CFTR",
+        "uniprotId": "P13569",
+        "variantClass": "pathogenic",
+        "mechanism": "trafficking-defect",
+        "expertHypothesis": "Deletion of Phe508 in NBD1 domain causes misfolding and ER retention. The missing phenylalanine disrupts a critical hydrophobic interface required for domain-domain assembly. Protein is degraded before reaching plasma membrane, abolishing chloride channel function.",
+        "expertConfidence": "high",
+        "keyFeatures": [
+            "Most common CFTR mutation (~70% of CF)",
+            "NBD1 domain misfolding",
+            "ER-associated degradation",
+            "No membrane localization"
+        ],
+        "references": [
+            "PMID:23974870",
+            "PMID:16957178"
+        ],
+        "structuralContext": {
+            "preferredSource": "AlphaFold",
+            "afId": "AF-P13569-F1"
+        }
+    },
+    {
+        "hgvs": "CFTR:p.Arg117His",
+        "gene": "CFTR",
+        "uniprotId": "P13569",
+        "variantClass": "VUS",
+        "mechanism": "uncertain",
+        "expertHypothesis": "Arg117 is in the first transmembrane helix. His substitution preserves positive charge but may alter helix packing or channel gating. Functional studies show milder phenotype than classic CF mutations, suggesting partial function retention.",
+        "expertConfidence": "moderate",
+        "keyFeatures": [
+            "Transmembrane domain 1",
+            "Charge preserved (Arg→His)",
+            "Milder clinical phenotype",
+            "Possible partial function"
+        ],
+        "references": [
+            "PMID:7557975"
+        ],
+        "structuralContext": {
+            "preferredSource": "AlphaFold",
+            "afId": "AF-P13569-F1"
+        }
+    },
+    {
+        "hgvs": "AR:p.Leu702HfsTer7",
+        "gene": "AR",
+        "uniprotId": "P10275",
+        "variantClass": "pathogenic",
+        "mechanism": "loss-of-function",
+        "expertHypothesis": "Frameshift at Leu702 introduces premature stop codon 7 residues later, truncating the ligand-binding domain. Results in non-functional receptor unable to bind testosterone. Associated with complete androgen insensitivity syndrome.",
+        "expertConfidence": "high",
+        "keyFeatures": [
+            "Frameshift in ligand-binding domain",
+            "Premature termination",
+            "No hormone binding",
+            "Complete AIS phenotype"
+        ],
+        "references": [
+            "PMID:15576435"
+        ],
+        "structuralContext": {
+            "preferredSource": "AlphaFold",
+            "afId": "AF-P10275-F1"
+        }
+    },
+    {
+        "hgvs": "AR:p.Gln59Leu",
+        "gene": "AR",
+        "uniprotId": "P10275",
+        "variantClass": "VUS",
+        "mechanism": "uncertain",
+        "expertHypothesis": "Gln59 is in the N-terminal transactivation domain, not the structured DBD or LBD. Substitution to Leu alters side chain chemistry but impact on transcriptional activity is unclear. This region is intrinsically disordered, making structural prediction difficult.",
+        "expertConfidence": "low",
+        "keyFeatures": [
+            "N-terminal domain (disordered)",
+            "Not in DNA or ligand binding domains",
+            "Effect on transactivation unclear",
+            "Limited structural context"
+        ],
+        "references": [],
+        "structuralContext": {
+            "preferredSource": "AlphaFold",
+            "afId": "AF-P10275-F1",
+            "note": "N-terminal region has low pLDDT"
+        }
+    },
+    {
+        "hgvs": "HBB:p.Glu6Val",
+        "gene": "HBB",
+        "uniprotId": "P68871",
+        "variantClass": "pathogenic",
+        "mechanism": "gain-of-function",
+        "expertHypothesis": "Glu6→Val creates a hydrophobic patch on hemoglobin surface. Under low oxygen, mutant HbS polymerizes into fibers via Val fitting into hydrophobic pocket of neighboring chain. Distorts red blood cell shape causing sickling and vaso-occlusion.",
+        "expertConfidence": "high",
+        "keyFeatures": [
+            "Sickle cell disease mutation",
+            "Surface exposed residue",
+            "Hydrophobic polymerization trigger",
+            "Dominant negative mechanism"
+        ],
+        "references": [
+            "PMID:7819342",
+            "PMID:16888286"
+        ],
+        "structuralContext": {
+            "preferredSource": "PDB",
+            "pdbId": "2HBS",
+            "resolution": 3.0
+        }
+    },
+    {
+        "hgvs": "FBN1:p.Cys1409Ser",
+        "gene": "FBN1",
+        "uniprotId": "P35555",
+        "variantClass": "pathogenic",
+        "mechanism": "dominant-negative",
+        "expertHypothesis": "Cys1409 in calcium-binding EGF-like domain. Ser substitution disrupts disulfide bond formation critical for domain folding. Misfolded monomers incorporate into microfibrils, disrupting extracellular matrix architecture. Dominant negative effect in Marfan syndrome.",
+        "expertConfidence": "high",
+        "keyFeatures": [
+            "EGF-like domain",
+            "Disulfide bond disruption",
+            "Dominant negative mechanism",
+            "Marfan syndrome"
+        ],
+        "references": [
+            "PMID:10777717",
+            "PMID:19377402"
+        ],
+        "structuralContext": {
+            "preferredSource": "AlphaFold",
+            "afId": "AF-P35555-F1"
+        }
+    }
+]

@@ -1,0 +1,22 @@
+{
+    "pdbResponses": {
+        "P04637": {
+            "structures": [
+                {
+                    "pdb_id": "1TUP",
+                    "resolution": 2.2,
+                    "coverage": [
+                        94,
+                        292
+                    ]
+                }
+            ]
+        }
+    },
+    "alphaFoldResponses": {
+        "P04637": {
+            "uniprot_id": "P04637",
+            "model_url": "https://alphafold.ebi.ac.uk/files/AF-P04637-F1-model_v4.pdb"
+        }
+    }
+}
