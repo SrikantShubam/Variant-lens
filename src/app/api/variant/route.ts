@@ -1,30 +1,47 @@
+/**
+ * VARIANT API ROUTE - HONEST MVP
+ * 
+ * Pivoted from "interpretation engine" to "evidence briefing tool".
+ * Key changes:
+ * - Uses CuratedProteinInfo instead of raw JSON
+ * - Returns EvidenceCoverage instead of fake confidence
+ * - Shows ExplicitUnknowns BEFORE AI summary
+ * - Validates variant position before processing
+ * - Always includes research disclaimer
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { parseHGVS, normalizeVariant } from '@/lib/variant';
 import { resolveStructure } from '@/lib/structure';
-import { AgentOrchestrator } from '@/lib/agents';
 import { variantRateLimiter } from '@/lib/rate-limit';
-import { generateCaseFile } from '@/lib/case-file';
+import { 
+  curateUniprotData, 
+  validateVariantPosition,
+  buildEvidenceCoverage,
+  generateUnknowns 
+} from '@/lib/uniprot-curator';
+import { synthesizeEvidence, formatSummaryWithDisclaimer } from '@/lib/evidence-synthesizer';
+import { HonestAPIResponse, RESEARCH_DISCLAIMER } from '@/lib/types/honest-response';
 
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
+  
   try {
     // Rate limiting
-    const ip = request.ip || 'unknown';
+    const ip = request.headers.get('x-forwarded-for') || 'unknown';
     const allowed = await variantRateLimiter.check(ip);
     
     if (!allowed) {
       const retryAfter = variantRateLimiter.getRetryAfter(ip);
       return NextResponse.json(
         { error: 'Rate limit exceeded', retryAfter },
-        { 
-          status: 429,
-          headers: { 'Retry-After': String(retryAfter) }
-        }
+        { status: 429, headers: { 'Retry-After': String(retryAfter) } }
       );
     }
 
     // Parse request
     const body = await request.json();
-    const { hgvs, format = 'json' } = body;
+    const { hgvs } = body;
 
     if (!hgvs) {
       return NextResponse.json(
@@ -33,7 +50,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate HGVS
+    // Validate HGVS format
     let normalizedVariant;
     try {
       normalizedVariant = normalizeVariant(hgvs);
@@ -44,108 +61,125 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Resolve structure
-    let structure;
+    const gene = normalizedVariant.parsed.gene;
+    const residueNumber = normalizedVariant.parsed.pos;
+
+    // ==========================================
+    // STEP 1: CURATE UNIPROT DATA
+    // ==========================================
+    let curatedInfo;
     try {
-      // Note: In production, we'd map gene to UniProt first
-      const uniprotId = normalizedVariant.parsed.gene; // Simplified
-      structure = await resolveStructure(uniprotId, normalizedVariant.parsed.pos);
+      curatedInfo = await curateUniprotData(gene, residueNumber);
     } catch (error) {
-      console.error('Structure resolution error:', error); // DEBUG LOG
-      if ((error as Error).message.includes('unavailable')) {
-        return NextResponse.json(
-          { error: 'Structure databases unavailable', fallback: 'text-only-report' },
-          { status: 503 }
-        );
+      const message = (error as Error).message;
+      
+      // Check if position validation failed
+      if (message.includes('exceeds') || message.includes('invalid')) {
+        return NextResponse.json({
+          error: true,
+          code: 'INVALID_POSITION',
+          message,
+          details: { gene, providedPosition: residueNumber },
+        }, { status: 400 });
       }
-      // Return the actual error message for debugging
-      return NextResponse.json(
-        { error: `No structure found: ${(error as Error).message}` },
-        { status: 404 }
-      );
+      
+      // Gene not found
+      if (message.includes('resolve')) {
+        return NextResponse.json({
+          error: true,
+          code: 'UNKNOWN_GENE',
+          message: `Could not resolve gene "${gene}" to UniProt`,
+        }, { status: 404 });
+      }
+      
+      throw error;
     }
 
-    // Run agent analysis
-    // Run agent analysis (Resilient)
-    let analysis;
-    const orchestrator = new AgentOrchestrator();
+    // ==========================================
+    // STEP 2: RESOLVE STRUCTURE
+    // ==========================================
+    let structureData = null;
     try {
-      analysis = await orchestrator.analyze(normalizedVariant.normalized);
-    } catch (agentError) {
-      console.error('Agent analysis failed:', agentError);
-      // fallback to structure-only response (don't crash)
-      analysis = null;
+      structureData = await resolveStructure(gene, residueNumber);
+    } catch (error) {
+      console.log(`[HonestAPI] Structure resolution failed:`, (error as Error).message);
+      // Don't fail - structure is optional
     }
 
-    // Build response
-    const response = {
-      variant: normalizedVariant.normalized,
-      structure: structure ? {
-        source: structure.source,
-        id: structure.id,
-        url: structure.url,
-        resolution: structure.resolution,
-        plddt: structure.plddt,
-        coverage: structure.coverage,
-        experimental: structure.experimental,
+    // ==========================================
+    // STEP 3: BUILD EVIDENCE COVERAGE
+    // ==========================================
+    const coverage = await buildEvidenceCoverage(
+      curatedInfo,
+      structureData ? {
+        source: structureData.source,
+        id: structureData.id,
+        resolution: structureData.resolution,
       } : null,
-      hypothesis: analysis?.hypothesis || { 
-        text: 'Detailed analysis unavailable (Agent system busy). Structure resolved successfully.', 
-        confidence: 'N/A', 
-        structural_basis: [], 
-        citations: [] 
-      },
-      context: analysis?.context || {},
-      validation: analysis?.validation || {},
-      timestamp: new Date().toISOString(),
-      exportUrl: `/api/export/${generateExportId()}`,
-    };
+      null, // TODO: Add ClinVar integration
+      0     // TODO: Add literature count
+    );
 
-    // Return in requested format
-    if (format === 'md') {
-      const markdown = generateMarkdownReport(response);
-      return new NextResponse(markdown, {
-        headers: { 'Content-Type': 'text/markdown' },
-      });
+    // ==========================================
+    // STEP 4: GENERATE EXPLICIT UNKNOWNS
+    // ==========================================
+    const unknowns = generateUnknowns(curatedInfo, coverage);
+
+    // ==========================================
+    // STEP 5: SYNTHESIZE EVIDENCE (AI)
+    // ==========================================
+    let synthesis;
+    try {
+      synthesis = await synthesizeEvidence(
+        normalizedVariant.normalized,
+        curatedInfo,
+        coverage,
+        unknowns
+      );
+    } catch (error) {
+      console.error('[HonestAPI] Synthesis failed:', error);
+      synthesis = {
+        summary: `Evidence synthesis unavailable. See curated data below.`,
+        knownFacts: [],
+        limitations: unknowns.items,
+      };
     }
+
+    // ==========================================
+    // STEP 6: BUILD HONEST RESPONSE
+    // ==========================================
+    const response: HonestAPIResponse = {
+      variant: {
+        hgvs: normalizedVariant.normalized,
+        gene: curatedInfo.gene,
+        residue: residueNumber,
+        isValidPosition: true,
+      },
+      coverage,
+      unknowns,
+      curatedInfo,
+      summary: formatSummaryWithDisclaimer(synthesis, 'meta/llama-3.3-70b-instruct'),
+      timestamp: new Date().toISOString(),
+      processingMs: Date.now() - startTime,
+    };
 
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('API error:', error);
+    console.error('[HonestAPI] Error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', message: (error as Error).message },
       { status: 500 }
     );
   }
 }
 
-function generateExportId(): string {
-  return `case-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-}
-
-function generateMarkdownReport(data: any): string {
-  return `# VariantLens Report
-
-**Variant:** ${data.variant}
-**Generated:** ${data.timestamp}
-
-## Structure Context
-Source: ${data.structure.source} (${data.structure.id})
-${data.structure.resolution ? `Resolution: ${data.structure.resolution}Å` : ''}
-
-## Mechanism Hypothesis
-${data.hypothesis.text}
-
-**Confidence:** ${data.hypothesis.confidence}
-
-## Structural Basis
-${data.hypothesis.structural_basis.map((b: string) => `- ${b}`).join('\n')}
-
-## Citations
-${data.hypothesis.citations.map((c: any) => `- [${c.pmid}](https://pubmed.ncbi.nlm.nih.gov/${c.pmid}/)`).join('\n')}
-
----
-*This report was generated by VariantLens-Open for research and educational purposes only. Not for clinical use.*
-`;
+// Keep old endpoint for backward compatibility during transition
+export async function GET(request: NextRequest) {
+  return NextResponse.json({
+    message: 'VariantLens API - Honest MVP',
+    version: '2.0.0-pivot',
+    disclaimer: RESEARCH_DISCLAIMER,
+    usage: 'POST /api/variant with { "hgvs": "GENE:p.XnnnY" }',
+  });
 }

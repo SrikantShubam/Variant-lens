@@ -99,6 +99,36 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
         <div className="absolute -bottom-1 -right-1 w-2 h-2 border-b border-r border-white/30" />
 
       </form>
+
+      {/* Prominent Loading Indicator */}
+      <AnimatePresence>
+        {loading && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mt-8 p-6 rounded-xl glass border border-primary/30 text-center"
+          >
+            <div className="flex items-center justify-center gap-3 mb-3">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              <span className="text-lg font-medium text-white">Analyzing Variant...</span>
+            </div>
+            <p className="text-sm text-muted">
+              Resolving structure from PDB/AlphaFold and generating AI hypothesis.
+              <br />
+              <span className="text-primary">This may take 30-60 seconds.</span>
+            </p>
+            <div className="mt-4 h-1 w-full bg-gray-800 rounded-full overflow-hidden">
+              <motion.div 
+                className="h-full bg-gradient-to-r from-primary to-secondary"
+                initial={{ width: "0%" }}
+                animate={{ width: "100%" }}
+                transition={{ duration: 45, ease: "linear" }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

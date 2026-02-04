@@ -1,17 +1,104 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Microscope, AlertTriangle, CheckCircle, ExternalLink, ChevronDown, ChevronUp, Share2, Download, Hexagon } from "lucide-react";
+import { motion } from "framer-motion";
+import { FileText, AlertTriangle, Hexagon, AlertCircle, Info, Beaker, HelpCircle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { useState } from "react";
 import { clsx } from "clsx";
 
-interface ReportViewProps {
-  data: any;
+// ==========================================
+// TYPES FOR HONEST RESPONSE
+// ==========================================
+
+interface EvidenceCoverage {
+  structure: {
+    status: string; // 'experimental' | 'predicted' | 'none'
+    source?: string;
+    id?: string;
+    resolution?: number;
+    note?: string;
+  };
+  clinical: {
+    status: string;
+    source?: string;
+  };
+  domain: {
+    inAnnotatedDomain: boolean;
+    domainName?: string;
+  };
+  literature: {
+    variantSpecificCount: number;
+    note?: string;
+  };
 }
 
+interface ExplicitUnknowns {
+  items: string[];
+  severity: 'critical' | 'moderate' | 'minor';
+}
+
+interface HonestReportData {
+  variant: {
+    hgvs: string;
+    gene: string;
+    residue: number;
+  };
+  coverage: EvidenceCoverage;
+  unknowns: ExplicitUnknowns;
+  curatedInfo: any;
+  summary: {
+    text: string;
+    generatedBy: string;
+    disclaimer: string;
+  };
+  timestamp: string;
+}
+
+interface ReportViewProps {
+  data: HonestReportData;
+}
+
+// ==========================================
+// TOOLTIP COMPONENT
+// ==========================================
+
+function Tooltip({ children, text }: { children: React.ReactNode; text: string }) {
+  return (
+    <div className="relative group inline-flex items-center">
+      {children}
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-xs text-gray-300 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 border border-white/10 max-w-xs text-wrap">
+        {text}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// EVIDENCE STATUS INDICATOR
+// ==========================================
+
+function StatusBadge({ status, label, tooltip }: { status: 'good' | 'warn' | 'none'; label: string; tooltip?: string }) {
+  const content = (
+    <div className="flex items-center gap-2">
+      <div className={clsx(
+        "w-2 h-2 rounded-full flex-shrink-0",
+        status === 'good' && "bg-green-400",
+        status === 'warn' && "bg-yellow-400",
+        status === 'none' && "bg-gray-600"
+      )} />
+      <span className="text-sm text-gray-300">{label}</span>
+      {tooltip && <HelpCircle className="w-3 h-3 text-gray-500" />}
+    </div>
+  );
+  
+  return tooltip ? <Tooltip text={tooltip}>{content}</Tooltip> : content;
+}
+
+// ==========================================
+// MAIN COMPONENT
+// ==========================================
+
 export default function ReportView({ data }: ReportViewProps) {
-  const { variant, structure, hypothesis, validation } = data;
+  const { variant, coverage, unknowns, curatedInfo, summary } = data;
   
   return (
     <motion.div 
@@ -19,141 +106,235 @@ export default function ReportView({ data }: ReportViewProps) {
       animate={{ opacity: 1 }}
       className="w-full max-w-7xl mx-auto pb-32 px-4 md:px-8"
     >
-      {/* Header Info */}
-      <div className="flex flex-col md:flex-row justify-between items-end mb-12 border-b border-white/10 pb-6">
+      {/* RESEARCH USE ONLY - Visible without scrolling */}
+      <div className="mb-4 text-center">
+        <span className="text-xs font-mono text-yellow-500 bg-yellow-500/10 px-3 py-1 rounded-full border border-yellow-500/30">
+          ⚠️ RESEARCH USE ONLY — NOT FOR CLINICAL DECISIONS
+        </span>
+      </div>
+
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-end mb-8 border-b border-white/10 pb-6">
          <div>
-             <div className="font-mono text-xs text-primary mb-2 tracking-widest uppercase">Analysis Complete</div>
+             <div className="font-mono text-xs text-primary mb-2 tracking-widest uppercase">Evidence Briefing</div>
              <h2 className="text-4xl md:text-6xl font-heading font-bold text-white tracking-tight uppercase">
-                {variant}
+                {variant.hgvs}
              </h2>
          </div>
          <div className="flex items-center gap-4 mt-4 md:mt-0 font-mono text-xs text-gray-400">
-             <span>ID: {structure?.id || 'N/A'}</span>
+             <span>{variant.gene}</span>
              <span>|</span>
              <span>{new Date(data.timestamp).toLocaleDateString()}</span>
          </div>
       </div>
 
+      {/* ⚠️ UNKNOWNS FIRST (Critical Trust Element) */}
+      {unknowns.items.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={clsx(
+            "mb-8 p-6 rounded-xl border",
+            unknowns.severity === 'critical' && "bg-red-500/10 border-red-500/30",
+            unknowns.severity === 'moderate' && "bg-yellow-500/10 border-yellow-500/30",
+            unknowns.severity === 'minor' && "bg-blue-500/10 border-blue-500/30"
+          )}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <AlertCircle className={clsx(
+              "w-5 h-5",
+              unknowns.severity === 'critical' && "text-red-400",
+              unknowns.severity === 'moderate' && "text-yellow-400",
+              unknowns.severity === 'minor' && "text-blue-400"
+            )} />
+            <h3 className="font-mono text-sm uppercase tracking-widest text-white">
+              Evidence Limitations
+            </h3>
+          </div>
+          <ul className="space-y-2">
+            {unknowns.items.map((item, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                <span className="text-gray-500">•</span>
+                {item}
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+      )}
+
       {/* BENTO GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-[minmax(180px,auto)]">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-[minmax(160px,auto)]">
         
-        {/* 1. Structure (Large Square) */}
+        {/* 1. Evidence Coverage Panel */}
+        <div className="md:col-span-2 glass-panel p-6 rounded-2xl">
+          <h4 className="font-mono text-xs text-muted uppercase tracking-widest mb-4">
+            Evidence Coverage
+          </h4>
+          <div className="grid grid-cols-2 gap-4">
+            <StatusBadge 
+              status={coverage.structure.status === 'experimental' ? 'good' : coverage.structure.status === 'predicted' ? 'warn' : 'none'}
+              label={coverage.structure.status === 'none' ? '❌ No Structure' : `${coverage.structure.source} ${coverage.structure.id || ''}`}
+            />
+            <StatusBadge 
+              status={coverage.clinical.status !== 'none' ? (coverage.clinical.status === 'pathogenic' ? 'good' : 'warn') : 'none'}
+              label={coverage.clinical.status === 'none' ? '❌ No Clinical Data' : coverage.clinical.status}
+            />
+            <StatusBadge 
+              status={coverage.domain.inAnnotatedDomain ? 'good' : 'none'}
+              label={coverage.domain.domainName 
+                ? `Domain (UniProt): ${coverage.domain.domainName}` 
+                : '❌ Outside Domains'}
+              tooltip={coverage.domain.domainName 
+                ? "Domain presence alone does not imply functional or clinical impact." 
+                : undefined}
+            />
+            <StatusBadge 
+              status={coverage.literature.variantSpecificCount > 10 ? 'good' : coverage.literature.variantSpecificCount > 0 ? 'warn' : 'none'}
+              label={coverage.literature.variantSpecificCount === 0 
+                ? '❌ No Papers' 
+                : `${coverage.literature.variantSpecificCount} Papers`}
+              tooltip="Literature search requires exact variant mentions. Broader semantic matching is planned."
+            />
+          </div>
+          {coverage.structure.note && (
+            <p className="text-xs text-yellow-400/70 mt-4 italic">
+              ⚠️ {coverage.structure.note}
+            </p>
+          )}
+        </div>
+
+        {/* 2. Structure Card */}
         <div className="md:col-span-2 md:row-span-2 glass-panel p-1 rounded-2xl relative group overflow-hidden">
              <div className="absolute inset-0 bg-gradient-to-br from-surface to-black z-0" />
-             <div className="absolute inset-0 opacity-20 bg-[url('https://cdn.rcsb.org/images/structures/boundary.png')] bg-cover bg-center mix-blend-overlay transition-transform duration-[10s] ease-linear group-hover:scale-110" />
              
              <div className="relative z-10 h-full flex flex-col justify-between p-8">
-                 {structure ? (
+                 {coverage.structure.status !== 'none' ? (
                    <>
                      <div className="flex justify-between items-start">
                         <span className="glass-light px-3 py-1 text-xs font-mono uppercase text-white rounded-full border border-white/10">
-                            {structure.source} Model
+                            {coverage.structure.source} ({coverage.structure.status})
                         </span>
                         <Hexagon className="text-primary w-6 h-6 animate-pulse opacity-50"/>
                      </div>
                      
                      <div>
-                        <h3 className="text-2xl font-light text-white mb-2">Structural Context</h3>
-                        <p className="text-foreground-muted text-sm max-w-xs">{structure.resolution ? `Resolution: ${structure.resolution}Å` : 'Predicted confidence metric unavailable.'}</p>
-                        <button className="mt-6 border border-white/20 hover:bg-white hover:text-black hover:border-white text-white px-6 py-2 text-xs font-mono uppercase tracking-widest transition-all rounded-full">
-                            Launch Viewer
-                        </button>
+                        {/* FIXED: Clearer subtitle per checklist criticism */}
+                        <h3 className="text-2xl font-light text-white mb-2">Structure Exists</h3>
+                        <p className="text-foreground-muted text-sm max-w-xs">
+                          {coverage.structure.status === 'experimental' 
+                            ? `Experimental structure exists for this protein region.`
+                            : `Predicted structure (AlphaFold) available.`}
+                        </p>
+                        {coverage.structure.resolution && (
+                          <p className="text-xs text-gray-400 mt-1">Resolution: {coverage.structure.resolution}Å</p>
+                        )}
+                        <p className="text-xs text-yellow-400/60 mt-2 italic">
+                          ⚠️ Residue mapping not yet computed. Structure quality varies.
+                        </p>
                      </div>
                    </>
                  ) : (
                    <div className="flex flex-col items-center justify-center h-full text-center">
                       <AlertTriangle className="text-yellow-500 w-12 h-12 mb-4" />
-                      <h3 className="text-xl text-white mb-2">Structure Unavailable</h3>
+                      <h3 className="text-xl text-white mb-2">No Structure Available</h3>
                       <p className="text-foreground-muted text-sm max-w-xs">
-                        No 3D model found for this variant/gene. Displaying text-only analysis.
+                        No experimental or predicted 3D model found for this protein.
                       </p>
                    </div>
                  )}
              </div>
         </div>
 
-        {/* 2. Validation Status (Wide) */}
-        <div className="md:col-span-2 glass-panel p-8 flex flex-col justify-center relative overflow-hidden rounded-2xl">
-             <div className="absolute right-0 top-0 p-4 opacity-10">
-                 <CheckCircle className="w-24 h-24" />
-             </div>
-             <h4 className="font-mono text-xs text-muted uppercase tracking-widest mb-2">Validation Protocols</h4>
-             <div className="flex items-center gap-3">
-                 <div className={clsx("w-3 h-3 rounded-full shadow-glow", validation.flags.length === 0 ? "bg-primary" : "bg-red-500 shadow-none")} />
-                 <span className="text-xl md:text-2xl text-white font-medium">
-                     {validation.flags.length === 0 ? "No Biological Hallucinations" : "Potential Conflicts Detected"}
+        {/* 3. Curated Context */}
+        <div className="md:col-span-2 glass-panel p-6 rounded-2xl">
+          <div className="flex items-center gap-2 mb-4">
+            <Beaker className="w-4 h-4 text-primary" />
+            <h4 className="font-mono text-xs text-muted uppercase tracking-widest">Curated Context (UniProt)</h4>
+          </div>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Protein</span>
+              <span className="text-white">{curatedInfo.proteinName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Length</span>
+              <span className="text-white">{curatedInfo.proteinLength} aa</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Variant Position</span>
+              <span className="text-white">{curatedInfo.variantPosition}</span>
+            </div>
+            {curatedInfo.variantInDomain && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">Annotated Domain (UniProt)</span>
+                <span className="text-primary">{curatedInfo.variantInDomain}</span>
+              </div>
+            )}
+            {/* ADDED: Isoform notice per checklist */}
+            <div className="flex justify-between pt-2 border-t border-white/5 mt-2">
+              <span className="text-gray-600 text-xs">Isoform</span>
+              <span className="text-gray-500 text-xs">Canonical UniProt isoform used</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Evidence Summary */}
+        <div className="md:col-span-2 lg:col-span-3 glass-panel p-8 md:p-10 rounded-2xl">
+             <div className="flex items-center gap-3 mb-6 border-b border-white/5 pb-4">
+                 <FileText className="text-primary w-5 h-5" />
+                 <h3 className="font-heading text-2xl text-white">Evidence Summary</h3>
+                 <span className="ml-auto text-xs font-mono text-gray-500">
+                   Summarized by: {summary.generatedBy}
                  </span>
              </div>
-        </div>
-
-        {/* 3. Confidence Score (Small) */}
-        <div className="glass-panel p-8 flex flex-col justify-between rounded-2xl">
-             <span className="font-mono text-xs text-muted uppercase">Certainty</span>
-             <div className="text-5xl font-bold text-white tracking-tighter">
-                {hypothesis.confidence === 'high' ? '92%' : hypothesis.confidence === 'moderate' ? '65%' : '30%'}
-             </div>
-             <div className="w-full bg-surface-light h-1 mt-4 rounded-full overflow-hidden">
-                 <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: hypothesis.confidence === 'high' ? '92%' : '65%' }}
-                    className="h-full bg-primary shadow-glow"
-                 />
-             </div>
-        </div>
-
-         {/* 4. Export (Small) */}
-         <div className="glass-panel p-8 flex flex-col justify-center gap-2 group cursor-pointer hover:bg-white/5 transition-colors rounded-2xl border-white/5 hover:border-primary/30">
-             <Share2 className="w-6 h-6 text-foreground-muted group-hover:text-primary transition-colors" />
-             <span className="font-mono text-xs text-foreground-muted group-hover:text-white mt-2 transition-colors">SHARE REPORT</span>
-         </div>
-
-
-        {/* 5. Hypothesis Narrative (Large Tall) */}
-        <div className="md:col-span-2 lg:col-span-3 lg:row-span-2 glass-panel p-8 md:p-10 rounded-2xl">
-             <div className="flex items-center gap-3 mb-8 border-b border-white/5 pb-4">
-                 <FileText className="text-primary w-5 h-5" />
-                 <h3 className="font-heading text-2xl text-white">Mechanism Hypothesis</h3>
-             </div>
              
-             <div className="prose prose-invert prose-p:text-gray-300 prose-headings:text-white max-w-none prose-lg">
+             <div className="prose prose-invert prose-p:text-gray-300 prose-headings:text-white max-w-none">
+                {/* ADDED: Prefix per checklist to reduce over-trust */}
+                <p className="text-sm text-gray-400 italic mb-4">
+                  Based on the available structured data:
+                </p>
                 <div className="text-foreground-muted font-light leading-relaxed">
-                   <ReactMarkdown>{hypothesis.text}</ReactMarkdown>
+                   <ReactMarkdown>{summary.text}</ReactMarkdown>
                 </div>
              </div>
-
-             <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-                 {hypothesis.structural_basis.map((basis: string, i: number) => (
-                     <div key={i} className="bg-surface-light/30 p-4 rounded-xl border-l-2 border-primary/50 backdrop-blur-sm">
-                         <span className="text-xs font-mono text-primary block mb-1">EVIDENCE {i+1}</span>
-                         <p className="text-sm text-gray-300">{basis}</p>
-                     </div>
-                 ))}
-             </div>
-        </div>
-        
-        {/* 6. Citations (Tall list) */}
-        <div className="lg:col-span-1 lg:row-span-2 glass-panel p-0 overflow-hidden flex flex-col rounded-2xl">
-            <div className="p-6 border-b border-white/5 bg-surface/50 backdrop-blur-xl sticky top-0 z-10">
-                <h4 className="font-mono text-xs text-muted uppercase tracking-widest">
-                    References
-                </h4>
-            </div>
-            <div className="overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                {hypothesis.citations.length > 0 ? hypothesis.citations.map((cite: any, i: number) => (
-                    <a key={i} href={`https://pubmed.ncbi.nlm.nih.gov/${cite.pmid}`} target="_blank" className="block p-4 rounded-lg bg-surface-light/20 border border-transparent hover:border-primary/30 hover:bg-surface-light/40 transition-all group">
-                        <div className="flex justify-between items-start mb-2">
-                             <span className="text-xs font-mono text-muted group-hover:text-primary transition-colors">[{i+1}]</span>
-                             <ExternalLink className="w-3 h-3 text-muted group-hover:text-primary transition-colors" />
-                        </div>
-                        <p className="text-xs text-gray-300 line-clamp-3 leading-relaxed group-hover:text-white transition-colors">{cite.title || 'Untitled Reference'}</p>
-                        <span className="text-[10px] text-muted mt-2 block font-mono">PMID: {cite.pmid}</span>
-                    </a>
-                )) : (
-                    <div className="text-muted text-xs italic p-4">No direct citations available.</div>
-                )}
-            </div>
+             
+             {/* ADDED: Domain limitation microcopy per checklist criticism */}
+             {curatedInfo.variantInDomain && (
+               <p className="text-xs text-gray-500 mt-6 italic border-t border-white/5 pt-4">
+                 Note: Domain presence alone does not imply functional or clinical impact.
+               </p>
+             )}
         </div>
 
+        {/* 5. Domains List */}
+        <div className="lg:col-span-1 glass-panel p-6 rounded-2xl">
+          <h4 className="font-mono text-xs text-muted uppercase tracking-widest mb-4">
+            Annotated Domains (UniProt)
+          </h4>
+          {curatedInfo.domains && curatedInfo.domains.length > 0 ? (
+            <div className="space-y-2">
+              {curatedInfo.domains.slice(0, 5).map((domain: any, i: number) => (
+                <div key={i} className="text-xs p-2 bg-surface-light/20 rounded">
+                  <span className="text-white">{domain.name}</span>
+                  <span className="text-gray-500 ml-2">({domain.start}-{domain.end})</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 italic">No domains annotated in UniProt</p>
+          )}
+        </div>
+
+      </div>
+
+      {/* RESEARCH DISCLAIMER (always shown, prominent) */}
+      <div className="mt-8 p-6 rounded-xl bg-surface border border-yellow-500/20">
+        <div className="flex items-start gap-3">
+          <Info className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-gray-400 whitespace-pre-line">
+            {summary.disclaimer}
+          </div>
+        </div>
       </div>
     </motion.div>
   );

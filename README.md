@@ -1,104 +1,141 @@
 # <div align="center">VariantLens 🔭</div>
 
 <div align="center">
-  <h3>Next-Generation Genomic Analysis Powered by Recursive Agentic Reasoning</h3>
+  <h3>Structure-Aware Evidence Briefing for Genetic Variant Research</h3>
   
   <p>
     <a href="https://nextjs.org">
       <img src="https://img.shields.io/badge/Next.js-14-black?style=for-the-badge&logo=next.js" alt="Next.js" />
     </a>
-    <a href="https://tailwindcss.com">
-      <img src="https://img.shields.io/badge/Tailwind_CSS-Deep_Space-38bdf8?style=for-the-badge&logo=tailwind-css" alt="Tailwind CSS" />
-    </a>
     <a href="https://www.typescriptlang.org/">
       <img src="https://img.shields.io/badge/TypeScript-Strict-3178c6?style=for-the-badge&logo=typescript" alt="TypeScript" />
     </a>
-    <a href="https://www.framer.com/motion/">
-      <img src="https://img.shields.io/badge/Framer_Motion-Kinetic-0055ff?style=for-the-badge&logo=framer" alt="Framer Motion" />
+    <a href="#">
+      <img src="https://img.shields.io/badge/Status-Research_Only-yellow?style=for-the-badge" alt="Research Only" />
     </a>
   </p>
 </div>
 
 ---
 
+## ⚠️ Important Notice
+
+**RESEARCH USE ONLY.** This tool provides evidence briefings for genetic variants. It does NOT provide:
+- Clinical interpretation
+- Pathogenicity prediction
+- Diagnostic guidance
+- Treatment recommendations
+
+Always consult qualified professionals for clinical decisions.
+
+---
+
 ## 🌌 Overview
 
-**VariantLens** is a cutting-edge research tool that bridges the gap between raw genomic data and structural understanding. By combining real-time structure resolution (PDB/AlphaFold) with **recursive agentic reasoning**, it converts complex variant data (e.g., `BRCA1:p.Cys61Gly`) into interactive, cited, and visually stunning 3D explanations.
+**VariantLens** is a research tool that helps researchers quickly understand what is **known** — and **unknown** — about a genetic variant by aggregating structured evidence from curated databases.
 
-Designed with a **"Deep Space"** aesthetic, the UI features glassmorphism, bioluminescent accents, and kinetic typography to provide an immersive analysis experience worthy of modern scientific exploration.
+### What It Does
+- ✅ Extracts curated protein domains from UniProt
+- ✅ Resolves 3D structures from PDB and AlphaFold
+- ✅ Shows evidence coverage (structure, clinical, literature)
+- ✅ **Explicitly lists what is NOT known**
+- ✅ Generates AI summaries grounded in available data
+
+### What It Does NOT Do
+- ❌ Interpret clinical significance
+- ❌ Predict pathogenicity or mechanism
+- ❌ Replace expert analysis
+
+---
 
 ## ✨ Key Features
 
-### 🧬 Structural Intelligence
-- **Dual-Engine Resolution**: Automatically resolves structures via **RCSB PDB** (experimental) with a seamless fallback to **AlphaFold** (predicted) for complete coverage.
-- **Smart Mapping**: (Coming Soon) Intelligent mapping from Gene Names to UniProt Accessions.
-- **Real-time Validation**: Checks structure resolution and sequence coverage instantly.
+### 📊 Evidence Coverage Panel
+Shows at-a-glance what data is available:
+- Structure (PDB/AlphaFold)
+- Clinical annotation (ClinVar - planned)
+- Domain annotation (UniProt)
+- Variant-specific literature (planned)
 
-### 🤖 Agentic Reasoning core
-- **Recursive Logic**: Agents don't just answer; they reason. They formulate hypotheses, search for structural evidence, and validate findings against established literature.
-- **Citation-Backed**: Every insight is cross-referenced with PubMed citations.
-- **Hallucination Checks**: built-in validation layer flags potential biological conflicts.
+### ⚠️ Evidence Limitations
+**Shown FIRST, not hidden.** Missing data is explicitly flagged so researchers can assess reliability.
 
-### 🎨 Awwwards-Caliber UI
-- **Deep Space Theme**: A custom Tailwind configuration featuring "Bioluminescence" cyan (`#00f5d4`) and "Plasma" violet (`#7b2cbf`).
-- **Kinetic Typography**: Smooth, physics-based text animations powered by Framer Motion.
-- **Mesh Gradients**: Dynamic, living backgrounds that breathe with the application state.
-- **Bento Grid Layout**: Data presented in a modern, asymmetric grid for optimal information density.
+### 🧬 Curated Context
+Domain and protein information extracted directly from UniProt — no LLM guessing.
+
+### 📝 Evidence Summary
+AI-generated summary that:
+- Only describes available data
+- Never infers mechanism or pathogenicity
+- Always mentions at least one limitation
+
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Node.js 18+
-- npm / yarn / pnpm
+- NVIDIA NIM API key (for LLM summaries)
 
 ### Installation
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/SrikantShubam/Variant-lens.git
-
-# 2. Enter the directory
 cd Variant-lens
 
-# 3. Install dependencies
+# 2. Install dependencies
 npm install
 
-# 4. Configure Environment
-# Copy .env.example to .env.local and add your keys (OpenRouter/Google Gemini)
+# 3. Configure Environment
 cp .env.example .env.local
+# Add your NVIDIA_API_KEY to .env.local
 
-# 5. Start the engine
+# 4. Start the development server
 npm run dev
 ```
 
-Visit `http://localhost:3000` and enter a variant (e.g. `TP53:p.R175H`) to begin analysis.
+Visit `http://localhost:3000` and enter a variant (e.g. `JAK2:p.V617F`) to begin.
+
+---
 
 ## 🛠️ Tech Stack
 
 - **Framework**: Next.js 14 (App Router)
-- **Styling**: Tailwind CSS + Custom Design System
-- **Animation**: Framer Motion
-- **State**: React Hooks + Context
-- **Testing**: Jest (Migration to Vitest planned)
-- **Biology**: RCSB PDB API, AlphaFold API, Mol* (Planned)
+- **Language**: TypeScript (strict mode)
+- **Data Sources**: UniProt, RCSB PDB, AlphaFold EBI
+- **LLM**: NVIDIA NIM (meta/llama-3.3-70b-instruct)
+- **Testing**: Jest + custom validation suite
+
+---
+
+## 📋 Validation
+
+The tool includes a validation suite to ensure correctness:
+- **Domain extraction** tested against known proteins
+- **Position validation** rejects invalid positions
+- **Regression tests** ensure limitations are never hidden
+
+---
 
 ## 🤝 Contributing
 
-We welcome explorers!
-1. Fork the repository.
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request.
+We welcome contributions focused on:
+- Improving data curation accuracy
+- Adding new evidence sources
+- Enhancing UI clarity
 
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## ⚠️ Disclaimer
+---
 
-**Research Use Only.** VariantLens is an automated analysis tool. While it uses validated databases, its outputs should not be used as the sole basis for clinical diagnosis or treatment decisions. Always consult a qualified medical geneticist.
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
-  <p>Built with 🧪 scientific rigor and 💜 code.</p>
+  <p>Built with scientific rigor. Honest about what we don't know.</p>
+  <p><strong>⚠️ Research Use Only ⚠️</strong></p>
 </div>

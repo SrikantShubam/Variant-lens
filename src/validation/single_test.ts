@@ -1,5 +1,5 @@
 
-import { AgentOrchestrator } from '../lib/agents/agents';
+import { AgentOrchestrator } from '../lib/agents';
 
 async function run() {
   const orchestrator = new AgentOrchestrator();

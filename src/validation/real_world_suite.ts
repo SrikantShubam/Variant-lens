@@ -37,7 +37,7 @@ async function runSuite() {
     try {
       console.log(`[${results.total}/${VARIANTS.length}] Testing ${hgvs}...`);
       
-      const response = await fetch('http://localhost:3001/api/variant', {
+      const response = await fetch('http://localhost:3003/api/variant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hgvs: hgvs }),

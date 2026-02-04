@@ -1,5 +1,5 @@
 export type LLMProvider = {
-  name: 'gemini' | 'openrouter' | 'ollama' | 'mock';
+  name: 'gemini' | 'openrouter' | 'ollama' | 'nvidia' | 'mock';
   apiKey?: string;
   model?: string;
   baseUrl?: string;
@@ -16,50 +16,25 @@ export interface FallbackConfig {
 }
 
 const OPENROUTER_MODELS = {
-  gemini: 'meta-llama/llama-3.3-70b-instruct:free', // Re-using 'gemini' key for primary model to minimize refactoring
-
+  gemini: 'meta-llama/llama-3.3-70b-instruct:free',
   llama: 'meta-llama/llama-3.1-8b-instruct:free',
   mistral: 'mistralai/mistral-7b-instruct:free',
 };
 
-export function getProvider(): LLMProvider {
-  const provider = process.env.LLM_PROVIDER || 'mock';
-  
-  if (provider === 'gemini') {
-    return {
-      name: 'gemini',
-      apiKey: process.env.GEMINI_API_KEY!,
-    };
-  }
-  
-  if (provider === 'openrouter') {
-    return {
-      name: 'openrouter',
-      apiKey: process.env.OPENROUTER_API_KEY!,
-      model: OPENROUTER_MODELS.gemini,
-      baseUrl: 'https://openrouter.ai/api/v1',
-    };
-  }
-
-  if (provider === 'ollama') {
-    return {
-      name: 'ollama',
-      baseUrl: process.env.LOCAL_LLM_URL || 'http://localhost:11434',
-      model: 'llama3.1:8b',
-    };
-  }
-  
-  return { name: 'mock' };
-}
-
 export const LLM_CONFIG: FallbackConfig = {
-  // Use Gemini (Gemma 3) as Primary for high availability
+  // Use NVIDIA (Llama 3.3) as Primary
   primary: {
-    name: 'gemini', // Internal name for Google AI Studio
-    apiKey: process.env.GEMINI_API_KEY!,
-    model: 'gemma-3-27b-it',
+    name: 'nvidia',
+    apiKey: process.env.NVIDIA_API_KEY!,
+    model: 'meta/llama-3.3-70b-instruct',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
   },
   fallbacks: [
+    {
+      name: 'gemini',
+      apiKey: process.env.GEMINI_API_KEY!,
+      model: 'gemma-3-27b-it',
+    },
     {
       name: 'openrouter',
       apiKey: process.env.OPENROUTER_API_KEY!,
@@ -72,17 +47,11 @@ export const LLM_CONFIG: FallbackConfig = {
       model: OPENROUTER_MODELS.llama,
       baseUrl: 'https://openrouter.ai/api/v1',
     },
-    {
-      name: 'openrouter',
-      apiKey: process.env.OPENROUTER_API_KEY!,
-      model: OPENROUTER_MODELS.mistral,
-      baseUrl: 'https://openrouter.ai/api/v1',
-    },
   ],
   retryDelays: [100, 200, 400], // Exponential backoff
   circuitBreaker: {
     failureThreshold: 3,
-    cooldownMs: 0, // 0 for testing (was 5 min)
+    cooldownMs: 0, 
   },
 };
 

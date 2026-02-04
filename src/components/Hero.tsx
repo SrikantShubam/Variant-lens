@@ -58,11 +58,11 @@ export default function Hero() {
         className="mt-12 md:ml-2 flex items-center gap-4"
       >
         <div className="text-primary font-mono text-xs md:text-sm tracking-[0.2em] uppercase">
-            [ System: Online ]
+            [ Research Tool ]
         </div>
         <div className="h-px w-20 bg-surface-light" />
         <p className="text-foreground-muted font-normal text-sm md:text-base max-w-md">
-            Real-time structural variant analysis powered by recursive agentic reasoning.
+            Structure-aware evidence briefing for genetic variant research.
         </p>
       </motion.div>
 

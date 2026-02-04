@@ -6,37 +6,43 @@ import SearchInput from "@/components/SearchInput";
 import ReportView from "@/components/ReportView";
 import { motion, AnimatePresence } from "framer-motion";
 
-// Types
-interface ReportData {
-  variant: string;
-  structure: {
-    source: string;
-    id: string;
-    resolution?: number;
-    experimental: boolean;
+// Types - Updated for Honest MVP
+interface HonestReportData {
+  variant: {
+    hgvs: string;
+    gene: string;
+    residue: number;
+    isValidPosition: boolean;
   };
-  hypothesis: {
+  coverage: {
+    structure: { status: string; source?: string; id?: string; resolution?: number; note?: string };
+    clinical: { status: string; source?: string };
+    domain: { inAnnotatedDomain: boolean; domainName?: string };
+    literature: { variantSpecificCount: number; note?: string };
+  };
+  unknowns: {
+    items: string[];
+    severity: 'critical' | 'moderate' | 'minor';
+  };
+  curatedInfo: any;
+  summary: {
     text: string;
-    confidence: string;
-    structural_basis: string[];
-    citations: any[];
-  };
-  validation: {
-    flags: string[];
-    alignment_score?: number;
+    generatedBy: string;
+    disclaimer: string;
   };
   timestamp: string;
+  processingMs: number;
 }
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<ReportData | null>(null);
+  const [data, setData] = useState<HonestReportData | null>(null);
 
   const handleSearch = async (hgvs: string) => {
     setLoading(true);
     setError(null);
-    // setData(null); // Optional: clear previous results or keep them while loading? User likely wants to clear
+    setData(null); // Clear previous results
 
     try {
       const res = await fetch('/api/variant', {
@@ -48,7 +54,7 @@ export default function Home() {
       const json = await res.json();
 
       if (!res.ok) {
-        throw new Error(json.error || 'Failed to analyze variant');
+        throw new Error(json.error || json.message || 'Failed to analyze variant');
       }
 
       setData(json);
@@ -92,7 +98,7 @@ export default function Home() {
          {/* Results */}
          <AnimatePresence mode="wait">
             {data ? (
-              <ReportView key={data.variant} data={data} />
+              <ReportView key={data.variant.hgvs} data={data} />
             ) : null}
          </AnimatePresence>
        </div>
