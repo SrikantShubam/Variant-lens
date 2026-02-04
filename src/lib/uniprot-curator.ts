@@ -330,9 +330,36 @@ export function generateUnknowns(
 
 export async function buildEvidenceCoverage(
   curatedInfo: CuratedProteinInfo,
-  structureData: { source: 'PDB' | 'AlphaFold'; id: string; resolution?: number } | null,
-  clinvarData: { clinicalSignificance?: string; reviewStatus?: string } | null,
-  literatureCount: number
+  structureData: { 
+    source: 'PDB' | 'AlphaFold'; 
+    id: string; 
+    resolution?: number;
+    sifts?: {
+      mapped: boolean;
+      pdbId: string;
+      chain: string;
+      pdbResidue: string;
+      source: string;
+    } | null;
+  } | null,
+  clinvarData: { 
+    significance: string; 
+    reviewStatus: string;
+    stars: number;
+    clinvarId: string;
+    url: string;
+    conditions: string[];
+  } | null,
+  literatureData: { 
+    count: number; 
+    query: string;
+    papers: Array<{
+      title: string;
+      url: string;
+      source: string;
+      pubDate: string;
+    }>;
+  } | null
 ): Promise<EvidenceCoverage> {
   return {
     structure: structureData ? {
@@ -340,15 +367,21 @@ export async function buildEvidenceCoverage(
       source: structureData.source,
       id: structureData.id,
       resolution: structureData.resolution,
-      note: UNKNOWN_MESSAGES.MAPPING_NOT_COMPUTED,
+      note: structureData.sifts?.mapped ? undefined : UNKNOWN_MESSAGES.MAPPING_NOT_COMPUTED,
+      sifts: structureData.sifts || undefined,
     } : {
       status: 'none',
     },
     
-    clinical: clinvarData?.clinicalSignificance ? {
-      status: mapClinicalSignificance(clinvarData.clinicalSignificance),
+    clinical: clinvarData ? {
+      status: mapClinicalSignificance(clinvarData.significance),
       source: 'ClinVar',
+      significance: clinvarData.significance,
       reviewStatus: clinvarData.reviewStatus,
+      stars: clinvarData.stars,
+      clinvarId: clinvarData.clinvarId,
+      url: clinvarData.url,
+      conditions: clinvarData.conditions,
     } : {
       status: 'none',
     },
@@ -359,8 +392,15 @@ export async function buildEvidenceCoverage(
     },
     
     literature: {
-      variantSpecificCount: literatureCount,
-      note: literatureCount === 0 ? UNKNOWN_MESSAGES.NO_LITERATURE : undefined,
+      variantSpecificCount: literatureData?.count || 0,
+      query: literatureData?.query,
+      papers: literatureData?.papers.map(p => ({
+        title: p.title,
+        url: p.url,
+        source: p.source,
+        year: p.pubDate.split(' ')[0] // Extract year roughly
+      })),
+      note: (literatureData?.count || 0) === 0 ? UNKNOWN_MESSAGES.NO_LITERATURE : undefined,
     },
   };
 }

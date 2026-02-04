@@ -51,14 +51,26 @@ export interface EvidenceCoverage {
     source?: 'PDB' | 'AlphaFold';
     id?: string;
     resolution?: number;
-    note?: string; // e.g., "Residue mapping not computed"
+    note?: string; 
+    sifts?: {
+       mapped: boolean;
+       pdbId: string;
+       chain: string;
+       pdbResidue: string;
+       source: string;
+    };
   };
   
-  // Clinical annotation status
+  // Clinical annotation status (Phase-2: ClinVar integration)
   clinical: {
     status: 'pathogenic' | 'likely_pathogenic' | 'uncertain' | 'likely_benign' | 'benign' | 'none';
     source?: 'ClinVar' | 'HGMD';
-    reviewStatus?: string;
+    significance?: string;      // Raw ClinVar text
+    reviewStatus?: string;      // ClinVar review status
+    stars?: number;             // 0-4 stars
+    clinvarId?: string;         // For linking
+    url?: string;               // Direct ClinVar URL
+    conditions?: string[];      // Associated conditions
   };
   
   // Domain annotation
@@ -70,8 +82,14 @@ export interface EvidenceCoverage {
   // Literature
   literature: {
     variantSpecificCount: number;
-    geneCount?: number;
-    note?: string; // e.g., "No variant-specific papers found"
+    query?: string;         // Search transparency
+    papers?: Array<{        // Top 5 snippets
+      title: string;
+      url: string;
+      source: string;
+      year: string;
+    }>;
+    note?: string; 
   };
 }
 
@@ -117,13 +135,6 @@ export interface HonestAPIResponse {
   
   // Curated context
   curatedInfo: CuratedProteinInfo;
-  
-  // AI-generated summary (grounded, restrained)
-  summary: {
-    text: string;
-    generatedBy: string; // Model name
-    disclaimer: string;  // Always present
-  };
   
   // Metadata
   timestamp: string;

@@ -20,8 +20,10 @@ import {
   buildEvidenceCoverage,
   generateUnknowns 
 } from '@/lib/uniprot-curator';
-import { synthesizeEvidence, formatSummaryWithDisclaimer } from '@/lib/evidence-synthesizer';
 import { HonestAPIResponse, RESEARCH_DISCLAIMER } from '@/lib/types/honest-response';
+import { getClinVarData, getClinVarUrl, getReviewStars } from '@/lib/clinvar-client';
+import { searchPubMed } from '@/lib/pubmed-client';
+import { getSiftsMapping } from '@/lib/sifts-client';
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -107,6 +109,53 @@ export async function POST(request: NextRequest) {
     }
 
     // ==========================================
+    // STEP 2.5: FETCH CLINVAR DATA (Phase-2 Priority 1)
+    // ==========================================
+    const proteinChange = `p.${normalizedVariant.parsed.ref}${normalizedVariant.parsed.pos}${normalizedVariant.parsed.alt}`;
+    let clinvarData = null;
+    try {
+      clinvarData = await getClinVarData(gene, proteinChange);
+      if (clinvarData) {
+        console.log(`[HonestAPI] ClinVar found: ${clinvarData.clinicalSignificance}`);
+      } else {
+        console.log(`[HonestAPI] No ClinVar entry for ${gene}:${proteinChange}`);
+      }
+    } catch (error) {
+      console.log(`[HonestAPI] ClinVar fetch failed:`, (error as Error).message);
+      // Don't fail - ClinVar is optional
+    }
+
+    // ==========================================
+    // STEP 2.6: FETCH LITERATURE (Phase-2 Priority 2)
+    // ==========================================
+    let pubmedData = null;
+    try {
+      pubmedData = await searchPubMed(gene, proteinChange);
+      if (pubmedData) {
+        console.log(`[HonestAPI] PubMed found: ${pubmedData.count} papers`);
+      }
+    } catch (error) {
+      console.log(`[HonestAPI] PubMed search failed:`, (error as Error).message);
+    }
+
+    // ==========================================
+    // STEP 2.7: SIFTS MAPPING (Phase-2 Priority 3)
+    // ==========================================
+    let siftsData = null;
+    if (structureData && structureData.source === 'PDB' && curatedInfo.uniprotId) {
+      try {
+        siftsData = await getSiftsMapping(curatedInfo.uniprotId, residueNumber, structureData.id);
+        if (siftsData) {
+           console.log(`[HonestAPI] SIFTS mapped: Chain ${siftsData.chain}, Residue ${siftsData.pdbResidue}`);
+        } else {
+           console.log(`[HonestAPI] SIFTS mapping failed for ${structureData.id}`);
+        }
+      } catch (error) {
+        console.log(`[HonestAPI] SIFTS error:`, (error as Error).message);
+      }
+    }
+
+    // ==========================================
     // STEP 3: BUILD EVIDENCE COVERAGE
     // ==========================================
     const coverage = await buildEvidenceCoverage(
@@ -115,35 +164,23 @@ export async function POST(request: NextRequest) {
         source: structureData.source,
         id: structureData.id,
         resolution: structureData.resolution,
+        sifts: siftsData // Pass SIFTS data
       } : null,
-      null, // TODO: Add ClinVar integration
-      0     // TODO: Add literature count
+      clinvarData ? {
+        significance: clinvarData.clinicalSignificance,
+        reviewStatus: clinvarData.reviewStatus,
+        stars: getReviewStars(clinvarData.reviewStatus),
+        clinvarId: clinvarData.clinvarId,
+        url: getClinVarUrl(clinvarData.clinvarId),
+        conditions: clinvarData.conditions,
+      } : null,
+      pubmedData // Pass full object, not just count
     );
 
     // ==========================================
     // STEP 4: GENERATE EXPLICIT UNKNOWNS
     // ==========================================
     const unknowns = generateUnknowns(curatedInfo, coverage);
-
-    // ==========================================
-    // STEP 5: SYNTHESIZE EVIDENCE (AI)
-    // ==========================================
-    let synthesis;
-    try {
-      synthesis = await synthesizeEvidence(
-        normalizedVariant.normalized,
-        curatedInfo,
-        coverage,
-        unknowns
-      );
-    } catch (error) {
-      console.error('[HonestAPI] Synthesis failed:', error);
-      synthesis = {
-        summary: `Evidence synthesis unavailable. See curated data below.`,
-        knownFacts: [],
-        limitations: unknowns.items,
-      };
-    }
 
     // ==========================================
     // STEP 6: BUILD HONEST RESPONSE
@@ -158,7 +195,6 @@ export async function POST(request: NextRequest) {
       coverage,
       unknowns,
       curatedInfo,
-      summary: formatSummaryWithDisclaimer(synthesis, 'meta/llama-3.3-70b-instruct'),
       timestamp: new Date().toISOString(),
       processingMs: Date.now() - startTime,
     };
