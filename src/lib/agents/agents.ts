@@ -108,14 +108,25 @@ async function generateWithFallback(
 
       const data = await response.json();
       let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      console.log(`[DEBUG] Raw Response (${provider.name}):`, text.substring(0, 200) + '...'); // Log first 200 chars
+      console.log(`[DEBUG] Raw Response (${provider.name}):`, JSON.stringify(data).substring(0, 500) + '...');
 
-      // Clean markdown
-      const cleaned = text.replace(/```json\n?|\n?```/g, '').trim();
+      // Robust JSON Extraction for Chatty Models (Gemma/Llama)
       try {
+        // 1. Try pure parse first (fast path)
+        const cleaned = text.replace(/```json\n?|\n?```/g, '').trim();
         return JSON.parse(cleaned);
       } catch (e) {
-        console.error(`[DEBUG] JSON Parse Failed. Cleaned Text:`, cleaned);
+        // 2. Regex fallback: Find { ... } block
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            return JSON.parse(jsonMatch[0]);
+          } catch (inner) {
+            console.error(`[DEBUG] Regex JSON Parse Failed:`, jsonMatch[0].substring(0, 100));
+            throw inner;
+          }
+        }
+        console.error(`[DEBUG] No JSON found in response.`);
         throw e;
       }
     }
