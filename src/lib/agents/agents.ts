@@ -81,17 +81,24 @@ async function generateWithFallback(
         }
       }
 
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${provider.apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey}`;
+      
+      const generationConfig: any = {
+        temperature,
+      };
+
+      // Only enable native JSON mode for Gemini (Gemma doesn't support it yet)
+      if (!provider.model.includes('gemma')) {
+        generationConfig.responseMimeType = 'application/json';
+      }
+
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents,
-          generationConfig: {
-            temperature,
-            responseMimeType: 'application/json'
-          }
-        })
+          generationConfig,
+        }),
       });
 
       if (!response.ok) {
@@ -100,8 +107,17 @@ async function generateWithFallback(
       }
 
       const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-      return JSON.parse(text);
+      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      console.log(`[DEBUG] Raw Response (${provider.name}):`, text.substring(0, 200) + '...'); // Log first 200 chars
+
+      // Clean markdown
+      const cleaned = text.replace(/```json\n?|\n?```/g, '').trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch (e) {
+        console.error(`[DEBUG] JSON Parse Failed. Cleaned Text:`, cleaned);
+        throw e;
+      }
     }
     
     throw new Error(`Unknown provider: ${provider.name}`);

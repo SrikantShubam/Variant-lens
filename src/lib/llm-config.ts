@@ -52,46 +52,42 @@ export function getProvider(): LLMProvider {
   return { name: 'mock' };
 }
 
-export function getFallbackConfig(): FallbackConfig {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  
-  return {
-    primary: {
+export const LLM_CONFIG: FallbackConfig = {
+  // Use Gemini (Gemma 3) as Primary for high availability
+  primary: {
+    name: 'gemini', // Internal name for Google AI Studio
+    apiKey: process.env.GEMINI_API_KEY!,
+    model: 'gemma-3-27b-it',
+  },
+  fallbacks: [
+    {
       name: 'openrouter',
-      apiKey,
-      model: OPENROUTER_MODELS.gemini,
+      apiKey: process.env.OPENROUTER_API_KEY!,
+      model: 'meta-llama/llama-3.3-70b-instruct:free',
       baseUrl: 'https://openrouter.ai/api/v1',
     },
-    fallbacks: [
-      {
-        name: 'openrouter',
-        apiKey,
-        model: OPENROUTER_MODELS.llama,
-        baseUrl: 'https://openrouter.ai/api/v1',
-      },
-      {
-        name: 'openrouter',
-        apiKey,
-        model: OPENROUTER_MODELS.mistral,
-        baseUrl: 'https://openrouter.ai/api/v1',
-      },
-      {
-        name: 'ollama',
-        baseUrl: process.env.LOCAL_LLM_URL || 'http://localhost:11434',
-        model: 'llama3.1:8b',
-      },
-      {
-        name: 'gemini',
-        apiKey: process.env.GEMINI_API_KEY!,
-        model: 'gemini-2.5-pro',
-      },
-    ],
-    retryDelays: [100, 200, 400], // Exponential backoff
-    circuitBreaker: {
-      failureThreshold: 3,
-      cooldownMs: 0, // 0 for testing (was 5 min)
+    {
+      name: 'openrouter',
+      apiKey: process.env.OPENROUTER_API_KEY!,
+      model: OPENROUTER_MODELS.llama,
+      baseUrl: 'https://openrouter.ai/api/v1',
     },
-  };
+    {
+      name: 'openrouter',
+      apiKey: process.env.OPENROUTER_API_KEY!,
+      model: OPENROUTER_MODELS.mistral,
+      baseUrl: 'https://openrouter.ai/api/v1',
+    },
+  ],
+  retryDelays: [100, 200, 400], // Exponential backoff
+  circuitBreaker: {
+    failureThreshold: 3,
+    cooldownMs: 0, // 0 for testing (was 5 min)
+  },
+};
+
+export function getFallbackConfig(): FallbackConfig {
+  return LLM_CONFIG;
 }
 
 // Circuit breaker state

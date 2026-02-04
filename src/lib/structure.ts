@@ -210,12 +210,38 @@ const COMMON_GENES: Record<string, string> = {
   'IDH2': 'P48735',
 };
 
+async function fetchUniprotId(gene: string): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `https://rest.uniprot.org/uniprotkb/search?query=gene:${gene}+AND+reviewed:true&format=json&limit=1`
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.results?.[0]?.primaryAccession || null;
+  } catch (e) {
+    console.warn(`UniProt ID lookup failed for ${gene}:`, e);
+    return null;
+  }
+}
+
 export async function resolveStructure(
   uniprotId: string, 
   residueNumber?: number
 ): Promise<StructureData | null> {
-  // Map gene name to UniProt ID if possible
-  const mappedId = COMMON_GENES[uniprotId.toUpperCase()] || uniprotId;
+  // 1. Check Hardcoded Map
+  let mappedId = COMMON_GENES[uniprotId.toUpperCase()];
+
+  // 2. Dynamic Lookup (if not mapped)
+  if (!mappedId) {
+     const dynamicId = await fetchUniprotId(uniprotId);
+     if (dynamicId) {
+       mappedId = dynamicId;
+       // Optional: Cache this mapping for this session?
+       COMMON_GENES[uniprotId.toUpperCase()] = dynamicId; 
+     } else {
+       mappedId = uniprotId; // Fallback to raw input
+     }
+  }
 
   // Try PDB first
   const pdbResolver = new PDBResolver();
@@ -230,7 +256,7 @@ export async function resolveStructure(
   try {
     return await afResolver.resolve(mappedId);
   } catch (e) {
-    console.warn(`Structure resolution failed for ${mappedId}:`, e);
+    console.warn(`Structure resolution failed for ${mappedId} (Gene: ${uniprotId}):`, e);
     return null;
   }
 }

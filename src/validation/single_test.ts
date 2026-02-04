@@ -1,16 +1,15 @@
 
-async function runSingle() {
-  const hgvs = 'BRCA1:p.C61G';
-  console.log(`Testing ${hgvs}...`);
-  const response = await fetch('http://localhost:3000/api/variant', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hgvs: hgvs }),
-  });
+import { AgentOrchestrator } from '../lib/agents/agents';
 
-  const text = await response.text();
-  console.log(`Status: ${response.status}`);
-  console.log(`Body: ${text.slice(0, 500)}`);
+async function run() {
+  const orchestrator = new AgentOrchestrator();
+  console.log("Testing Gemma 3 with TP53:p.R175H...");
+  try {
+    const result = await orchestrator.analyze('TP53:p.R175H');
+    console.log("Result:", JSON.stringify(result, null, 2));
+  } catch (error) {
+    console.error("Test Failed:", error);
+  }
 }
 
-runSingle().catch(console.error);
+run();
