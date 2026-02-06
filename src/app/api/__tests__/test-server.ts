@@ -1,7 +1,6 @@
 import { createServer as createHttpServer } from 'http';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { POST as variantPost } from '../variant/route';
-import { POST as batchPost, GET as batchGet } from '../batch/route';
 import { GET as healthGet } from '../health/route';
 import { GET as readyGet } from '../ready/route';
 
@@ -28,26 +27,6 @@ export const createServer = () => {
             headers: req.headers as HeadersInit
         }) as any;
         response = await variantPost(request) as Response;
-      }
-      else if (path === '/api/batch' && method === 'POST') {
-        const body = await parseBody(req);
-        const request = new Request(url.toString(), {
-            method: 'POST',
-            body: JSON.stringify(body),
-            headers: req.headers as HeadersInit
-        }) as any;
-        response = await batchPost(request) as Response;
-      }
-      else if (path.match(/\/api\/batch\/.*\/status/) && method === 'GET') {
-          const parts = path.split('/');
-          const jobId = parts[3];
-          // Mock request/context
-           const request = new Request(url.toString(), {
-                method: 'GET',
-                headers: req.headers as HeadersInit
-            });
-           // We need to cast because Next.js route handler expects NextRequest or Request + params context
-           response = await batchGet(request as any, { params: { jobId } }) as Response;
       }
       else if (path === '/api/health' && method === 'GET') {
           response = await healthGet() as Response;

@@ -19,7 +19,7 @@ describe('Structure Resolution', () => {
       console.log('Structure Result:', JSON.stringify(result, null, 2));
 
       expect(result).not.toBeNull();
-      if (!result) return; // type guard
+      if (!result) return;
       
       expect(result.source).toBe('PDB');
       expect(result.id).toMatch(/^\d[A-Z0-9]{3}$/);
@@ -47,6 +47,7 @@ describe('Structure Resolution', () => {
       const resolver = new AlphaFoldResolver();
       const result = await resolver.resolve('P04637');
       
+      if (!result) throw new Error('Result should not be null');
       expect(result.source).toBe('AlphaFold');
       expect(result.id).toBe('AF-P04637-F1');
       expect(result.plddt).toBeDefined();
@@ -57,6 +58,7 @@ describe('Structure Resolution', () => {
   describe('resolveStructure (hierarchy)', () => {
     it('prefers PDB over AlphaFold', async () => {
       const result = await resolveStructure('P04637', 175);
+      if (!result) throw new Error('Result should not be null');
       expect(result.source).toBe('PDB');
     });
 
@@ -65,6 +67,7 @@ describe('Structure Resolution', () => {
       jest.spyOn(PDBResolver.prototype, 'resolve').mockResolvedValue(null);
       
       const result = await resolveStructure('P04637', 175);
+      if (!result) throw new Error('Result should not be null');
       expect(result.source).toBe('AlphaFold');
     });
 

@@ -2,15 +2,13 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import request from 'supertest';
 import { createServer } from './test-server';
 
-import { mockFetch, mockOpenAI, mockOrchestrator } from '../../../lib/__tests__/mocks/external-apis';
+import { mockFetch } from '../../../lib/__tests__/mocks/external-apis';
 
 describe('POST /api/variant', () => {
   let server: any;
 
   beforeAll(() => {
     mockFetch();
-    mockOpenAI();
-    mockOrchestrator(); // Mock entire orchestrator to bypass LLM calls
     server = createServer();
   });
 
@@ -27,8 +25,8 @@ describe('POST /api/variant', () => {
     // Route normalizes variant to short form
     expect(response.body).toHaveProperty('variant');
     expect(response.body.variant).toMatch(/BRCA1:p\.(C61G|Cys61Gly)/);
-    expect(response.body).toHaveProperty('structure');
-    expect(response.body).toHaveProperty('hypothesis');
+    expect(response.body).toHaveProperty('coverage');
+    expect(response.body).toHaveProperty('unknowns');
   });
 
   it('returns 400 for invalid HGVS', async () => {

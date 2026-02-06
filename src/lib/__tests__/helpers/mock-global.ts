@@ -8,7 +8,7 @@ declare global {
 }
 
 // Import manual mock implementations
-import { mockFetch, mockOpenAI } from '../mocks/external-apis';
+import { mockFetch } from '../mocks/external-apis';
 
 /**
  * Ensure all mocks are applied. Safe to call multiple times (idempotent).
@@ -19,7 +19,6 @@ export function ensureMocks(): void {
   
   if (!global.__MOCKS_READY__) {
     mockFetch();
-    mockOpenAI();
     global.__MOCKS_READY__ = true;
   }
 }
