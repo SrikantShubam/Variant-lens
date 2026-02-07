@@ -4,35 +4,10 @@ import { useState } from "react";
 import Hero from "@/components/Hero";
 import SearchInput from "@/components/SearchInput";
 import ReportView from "@/components/ReportView";
+import BatchUpload from "@/components/BatchUpload";
 import { motion, AnimatePresence } from "framer-motion";
 
-// Types - Updated for Honest MVP
-interface HonestReportData {
-  variant: {
-    hgvs: string;
-    gene: string;
-    residue: number;
-    isValidPosition: boolean;
-  };
-  coverage: {
-    structure: { status: string; source?: string; id?: string; resolution?: number; note?: string };
-    clinical: { status: string; source?: string };
-    domain: { inAnnotatedDomain: boolean; domainName?: string };
-    literature: { variantSpecificCount: number; note?: string };
-  };
-  unknowns: {
-    items: string[];
-    severity: 'critical' | 'moderate' | 'minor';
-  };
-  curatedInfo: any;
-  summary: {
-    text: string;
-    generatedBy: string;
-    disclaimer: string;
-  };
-  timestamp: string;
-  processingMs: number;
-}
+import { HonestReportData } from '@/lib/types/honest-response';
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
@@ -79,6 +54,10 @@ export default function Home() {
          <Hero />
          
          <SearchInput onSearch={handleSearch} loading={loading} />
+         
+         <div className="mt-8 max-w-2xl mx-auto">
+            <BatchUpload />
+         </div>
 
          {/* Error Message */}
          <AnimatePresence>

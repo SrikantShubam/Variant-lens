@@ -7,9 +7,11 @@ export interface StructureData {
   url: string;
   resolution?: number;
   plddt?: number[];
+  paeUrl?: string; // Phase-4: Link to PAE JSON
   coverage: string;
   experimental: boolean;
   coordinates?: string; // PDB format content or URL
+  mapped?: boolean; // Phase-4: Track if residue is covered
 }
 
 interface CacheEntry {
@@ -24,10 +26,10 @@ export class PDBResolver {
   private baseUrl = 'https://search.rcsb.org/rcsbsearch/v2/query';
   private downloadUrl = 'https://files.rcsb.org/download';
 
-  async resolve(uniprotId: string, residueNumber?: number): Promise<StructureData | null> {
-    const cacheKey = `pdb:${uniprotId}:${residueNumber}`;
-    const cached = getCache(cacheKey);
-    if (cached) return cached;
+  async resolve(uniprotId: string, residueNumber?: number): Promise<StructureData[]> {
+    const cacheKey = `pdb:${uniprotId}:${residueNumber}:list`;
+    // const cached = getCache(cacheKey); // Phase-4: Temporarily disable list cache or update cache logic
+    // if (cached) return cached; // Type mismatch, cache stores single. Needs update.
 
     try {
       // Search PDB for structures matching UniProt ID
@@ -51,7 +53,7 @@ export class PDBResolver {
       });
 
       if (response.status === 204) {
-        return null;
+        return [];
       }
 
       if (!response.ok) {
@@ -61,7 +63,7 @@ export class PDBResolver {
       const data = await response.json().catch(() => null);
       
       if (!data || !data.result_set || data.result_set.length === 0) {
-        return null;
+        return [];
       }
 
       // Get best structure (highest resolution, covering residue if specified)
@@ -72,18 +74,18 @@ export class PDBResolver {
         })
       );
 
-      // Filter valid structures
+      // Filter valid structures (at least entity mapped)
       const validStructures = structures.filter((s): s is StructureData => s !== null);
       
-      // Sort by resolution (best first)
-      validStructures.sort((a, b) => (a.resolution || 999) - (b.resolution || 999));
+      // Sort by:
+      // 1. Mapped (covered) first
+      // 2. Resolution (lower is better)
+      validStructures.sort((a, b) => {
+        if (a.mapped !== b.mapped) return (b.mapped ? 1 : 0) - (a.mapped ? 1 : 0);
+        return (a.resolution || 999) - (b.resolution || 999);
+      });
 
-      const bestStructure = validStructures[0];
-      if (bestStructure) {
-        setCache(cacheKey, bestStructure);
-      }
-
-      return bestStructure || null;
+      return validStructures;
 
     } catch (error) {
       console.error('PDB resolution failed:', error);
@@ -112,9 +114,11 @@ export class PDBResolver {
       }
 
       // Check coverage if residue specified
+      let isMapped = true;
       if (residueNumber) {
         const coverage = await this.checkCoverage(pdbId, uniprotId, residueNumber);
-        if (!coverage.covered) return null;
+        isMapped = coverage.covered;
+        // Phase-4: Do NOT filter out unmapped structures. Just mark them.
       }
 
       return {
@@ -122,8 +126,9 @@ export class PDBResolver {
         id: pdbId,
         url: `${this.downloadUrl}/${pdbId}.cif`,
         resolution,
-        coverage: residueNumber ? 'target residue covered' : 'full sequence',
+        coverage: residueNumber ? (isMapped ? 'target residue covered' : 'unmapped') : 'full sequence',
         experimental: true,
+        mapped: isMapped
       };
 
     } catch (error) {
@@ -175,12 +180,14 @@ export class AlphaFoldResolver {
       const data = await response.json();
       const entry = Array.isArray(data) ? data[0] : data;
 
+      // Use API-provided URLs directly (handles version changes automatically)
       const structure: StructureData = {
         source: 'AlphaFold',
         id: entry.entryId,
-        url: entry.pdbUrl,
+        url: entry.bcifUrl || entry.cifUrl || entry.pdbUrl, // Phase-4 Optimization: Prefer BCIF > CIF > PDB
         plddt: entry.plddt,
-        coverage: `${entry.coverage?.[0]?.queryStart}-${entry.coverage?.[0]?.queryEnd}`,
+        paeUrl: entry.paeDocUrl, // Use API-provided PAE URL (not hardcoded v4)
+        coverage: `${entry.coverage?.[0]?.seqStart || 1}-${entry.coverage?.[0]?.seqEnd || 'full'}`,
         experimental: false,
       };
 
@@ -227,7 +234,7 @@ async function fetchUniprotId(gene: string): Promise<string | null> {
 export async function resolveStructure(
   uniprotId: string, 
   residueNumber?: number
-): Promise<StructureData | null> {
+): Promise<{ best: StructureData | null, available: StructureData[] }> {
   // 1. Check Hardcoded Map
   let mappedId = COMMON_GENES[uniprotId.toUpperCase()];
 
@@ -245,20 +252,31 @@ export async function resolveStructure(
 
   // Try PDB first
   const pdbResolver = new PDBResolver();
-  const pdbResult = await pdbResolver.resolve(mappedId, residueNumber);
-  
-  if (pdbResult) {
-    return pdbResult;
-  }
-
-  // Fallback to AlphaFold
   const afResolver = new AlphaFoldResolver();
-  try {
-    return await afResolver.resolve(mappedId);
-  } catch (e) {
-    console.warn(`Structure resolution failed for ${mappedId} (Gene: ${uniprotId}):`, e);
-    return null;
+  
+  // Fetch both in parallel
+  const [pdbResults, afResult] = await Promise.all([
+    pdbResolver.resolve(mappedId, residueNumber).catch(() => [] as StructureData[]),
+    afResolver.resolve(mappedId).catch(() => null)
+  ]);
+  
+  // Combine: PDBs first, then AlphaFold
+  const allStructures: StructureData[] = [...pdbResults];
+  if (afResult) {
+    allStructures.push(afResult);
   }
+  
+  if (allStructures.length > 0) {
+    // Best = first PDB if available, else AlphaFold
+    const best = pdbResults.length > 0 ? pdbResults[0] : afResult;
+    return {
+      best,
+      available: allStructures
+    };
+  }
+  
+  console.warn(`Structure resolution failed for ${mappedId} (Gene: ${uniprotId})`);
+  return { best: null, available: [] };
 }
 
 // Cache utilities

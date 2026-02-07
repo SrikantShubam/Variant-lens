@@ -51,6 +51,7 @@ export interface EvidenceCoverage {
     source?: 'PDB' | 'AlphaFold';
     id?: string;
     resolution?: number;
+    paeUrl?: string; // Phase-4
     note?: string; 
     sifts?: {
        mapped: boolean;
@@ -59,6 +60,16 @@ export interface EvidenceCoverage {
        pdbResidue: string;
        source: string;
     };
+    availableStructures?: Array<{
+       id: string;
+       source: string;
+       url?: string; // Phase-4: API-provided structure URL
+       resolution?: number;
+       paeUrl?: string; // Phase-4
+       chain: string;
+       mapped: boolean;
+       pdbResidue?: string; // Phase-4: Required for highlighting
+    }>;
   };
   
   // Clinical annotation status (Phase-2: ClinVar integration)
@@ -139,6 +150,18 @@ export interface HonestAPIResponse {
   // Metadata
   timestamp: string;
   processingMs: number;
+}
+
+export interface HonestReportData {
+  variant: {
+    hgvs: string;
+    gene: string;
+    residue: number;
+  };
+  coverage: EvidenceCoverage;
+  unknowns: ExplicitUnknowns;
+  curatedInfo: CuratedProteinInfo;
+  timestamp?: string; // Optional for view
 }
 
 // ==========================================

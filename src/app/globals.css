@@ -160,3 +160,63 @@ body::before {
 .scroll-indicator {
   animation: scrollBounce 2s ease-in-out infinite;
 }
+
+/* PRINT STYLES - Scope PDF to report only */
+@media print {
+
+  /* Hide everything by default */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Show only the report section */
+  .report-printable,
+  .report-printable * {
+    visibility: visible;
+  }
+
+  .report-printable {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  /* Hide interactive elements */
+  .print\\:hidden,
+  .mesh-bg,
+  button,
+  select,
+  input,
+  nav,
+  header,
+  footer {
+    display: none !important;
+  }
+
+  /* Reset colors for printing */
+  .report-printable {
+    background: white !important;
+    color: black !important;
+  }
+
+  .glass-panel,
+  .glass,
+  .glass-light {
+    background: #f5f5f5 !important;
+    border: 1px solid #ddd !important;
+  }
+
+  /* Ensure text is readable */
+  .text-white,
+  .text-gray-100,
+  .text-gray-200,
+  .text-gray-300 {
+    color: black !important;
+  }
+
+  .text-gray-400,
+  .text-gray-500 {
+    color: #555 !important;
+  }
+}

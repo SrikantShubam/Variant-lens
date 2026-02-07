@@ -67,6 +67,35 @@ export const mockFetch = () => {
         } as Response;
     }
 
+    // EBI SIFTS API
+    if (url.includes('pdbe/api/mappings/')) {
+       // Extract PDB ID from URL (last segment)
+       const pdbIdMatch = url.match(/\/mappings\/([a-zA-Z0-9]+)$/);
+       const pdbId = pdbIdMatch ? pdbIdMatch[1].toLowerCase() : '1tup';
+       
+       return {
+           ok: true,
+           json: async () => ({
+               [pdbId]: {
+                   UniProt: {
+                       "P04637": {
+                           mappings: [
+                               {
+                                   entity_id: 1,
+                                   chain_id: "A",
+                                   unp_start: 1,
+                                   unp_end: 393,
+                                   start: { residue_number: 1 },
+                                   end: { residue_number: 393 }
+                               }
+                           ]
+                       }
+                   }
+               }
+           })
+       } as Response;
+    }
+
     // Default error for unmocked calls
     return Promise.reject(new Error(`Unknown URL in mockFetch: ${url}`));
   };

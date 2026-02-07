@@ -1,0 +1,5 @@
+HGVS,Notes
+TP53:p.R175H, Standard
+  BRCA1:p.C61G  , Generic whitespace
+braf:p.v600e, Lowercase
+INVALID_GENE, Missing protein part

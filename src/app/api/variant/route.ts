@@ -24,6 +24,7 @@ import { HonestAPIResponse, RESEARCH_DISCLAIMER } from '@/lib/types/honest-respo
 import { getClinVarData, getClinVarUrl, getReviewStars } from '@/lib/clinvar-client';
 import { searchPubMed } from '@/lib/pubmed-client';
 import { getSiftsMapping } from '@/lib/sifts-client';
+import { generateMarkdown } from '@/lib/report-utils';
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -101,12 +102,20 @@ export async function POST(request: NextRequest) {
     // STEP 2: RESOLVE STRUCTURE
     // ==========================================
     let structureData = null;
+    let availableStructures: any[] = []; // Explicitly typed as array
     try {
-      structureData = await resolveStructure(gene, residueNumber);
+      const result = await resolveStructure(gene, residueNumber);
+      structureData = result.best;
+      availableStructures = result.available || [];
     } catch (error) {
       console.log(`[HonestAPI] Structure resolution failed:`, (error as Error).message);
       // Don't fail - structure is optional
     }
+    
+    // DEBUG: Log available structures
+    console.log(`[HonestAPI] DEBUG - Best structure:`, structureData?.id, structureData?.source);
+    console.log(`[HonestAPI] DEBUG - Available structures count:`, availableStructures.length);
+    console.log(`[HonestAPI] DEBUG - Available structures:`, availableStructures.map(s => `${s.source}:${s.id}`).join(', '));
 
     // ==========================================
     // STEP 2.5: FETCH CLINVAR DATA (Phase-2 Priority 1)
@@ -139,6 +148,49 @@ export async function POST(request: NextRequest) {
     }
 
     // ==========================================
+    // STEP 2.65: ENRICH AVAILABLE STRUCTURES (Phase-4 Priority 1)
+    // ==========================================
+    let enrichedAvailableStructures: any[] = [];
+    if (availableStructures.length > 0 && curatedInfo.uniprotId) {
+      try {
+        enrichedAvailableStructures = await Promise.all(
+          availableStructures.map(async (s) => {
+            let chain = 'A';
+            let mapped = s.mapped ?? false;
+            let pdbResidue: string | undefined = undefined;
+
+            if (s.source === 'PDB') {
+              const sifts = await getSiftsMapping(curatedInfo.uniprotId, residueNumber, s.id);
+              if (sifts) {
+                chain = sifts.chain;
+                mapped = sifts.mapped;
+                pdbResidue = sifts.pdbResidue;
+              } else {
+                mapped = false;
+              }
+            } else if (s.source === 'AlphaFold') {
+              mapped = true;
+              chain = 'A';
+            }
+
+            return {
+              id: s.id,
+              source: s.source,
+              url: s.url, // Phase-4: Pass API-provided URL for AlphaFold
+              resolution: s.resolution,
+              paeUrl: s.paeUrl, // Phase-4
+              chain,
+              mapped,
+              pdbResidue
+            };
+          })
+        );
+      } catch (e) {
+        console.error('[HonestAPI] Failed to enrich structures:', e);
+      }
+    }
+
+    // ==========================================
     // STEP 2.7: SIFTS MAPPING (Phase-2 Priority 3)
     // ==========================================
     let siftsData = null;
@@ -164,7 +216,9 @@ export async function POST(request: NextRequest) {
         source: structureData.source,
         id: structureData.id,
         resolution: structureData.resolution,
-        sifts: siftsData // Pass SIFTS data
+        paeUrl: structureData.paeUrl, // Phase-4
+        sifts: siftsData, // Pass SIFTS data
+        availableStructures: enrichedAvailableStructures
       } : null,
       clinvarData ? {
         significance: clinvarData.clinicalSignificance,
@@ -198,6 +252,15 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
       processingMs: Date.now() - startTime,
     };
+
+    const format = request.nextUrl.searchParams.get('format');
+    if (format === 'md' || format === 'markdown') {
+       const md = generateMarkdown(response);
+       return new NextResponse(md, {
+         status: 200,
+         headers: { 'Content-Type': 'text/markdown' }
+       });
+    }
 
     return NextResponse.json(response);
 

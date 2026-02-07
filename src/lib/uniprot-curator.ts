@@ -334,6 +334,7 @@ export async function buildEvidenceCoverage(
     source: 'PDB' | 'AlphaFold'; 
     id: string; 
     resolution?: number;
+    paeUrl?: string; // Phase-4
     sifts?: {
       mapped: boolean;
       pdbId: string;
@@ -341,6 +342,14 @@ export async function buildEvidenceCoverage(
       pdbResidue: string;
       source: string;
     } | null;
+    availableStructures?: Array<{
+      id: string;
+      source: string;
+      resolution?: number;
+      chain: string;
+      mapped: boolean;
+      paeUrl?: string; // Phase-4
+    }>;
   } | null,
   clinvarData: { 
     significance: string; 
@@ -367,8 +376,10 @@ export async function buildEvidenceCoverage(
       source: structureData.source,
       id: structureData.id,
       resolution: structureData.resolution,
+      paeUrl: structureData.paeUrl, // Phase-4
       note: structureData.sifts?.mapped ? undefined : UNKNOWN_MESSAGES.MAPPING_NOT_COMPUTED,
       sifts: structureData.sifts || undefined,
+      availableStructures: structureData.availableStructures,
     } : {
       status: 'none',
     },
