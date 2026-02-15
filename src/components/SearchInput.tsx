@@ -16,9 +16,11 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
   const [isFocused, setIsFocused] = useState(false);
 
   const validateHGVS = (input: string) => {
-    // Basic regex for HGVS (p., c., g.) - supports 1-letter and 3-letter codes
-    const regex = /^[A-Z0-9]+:p\.([A-Z][a-z]{2}|[A-Z])\d+([A-Z][a-z]{2}|[A-Z]|\*)$|^p\.([A-Z][a-z]{2}|[A-Z])\d+([A-Z][a-z]{2}|[A-Z]|\*)$/i;
-    const valid = regex.test(input.trim());
+    // Permissive regex: allow optional transcript/gene prefix, optional p. prefix
+    // Backend handles strict parsing. We just want to filter out obvious garbage.
+    // Allow: BRAF:V600E, NM_004333:p.V600E, etc.
+    // Minimum requirement: some alphanumeric string, optional coords, and a protein change-like ending
+    const valid = input.length > 3 && /[A-Za-z0-9]/.test(input);
     setIsValid(valid);
   };
 
@@ -114,7 +116,7 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
               <span className="text-lg font-medium text-white">Analyzing Variant...</span>
             </div>
             <p className="text-sm text-muted">
-              Resolving structure from PDB/AlphaFold and generating AI hypothesis.
+              Resolving structure from PDB/AlphaFold and compiling evidence briefing.
               <br />
               <span className="text-primary">This may take 30-60 seconds.</span>
             </p>

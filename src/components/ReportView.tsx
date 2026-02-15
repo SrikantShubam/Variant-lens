@@ -156,6 +156,16 @@ export default function ReportView({ data }: ReportViewProps) {
              <h2 className="text-4xl md:text-6xl font-heading font-bold text-white tracking-tight uppercase">
                 {variant.hgvs}
              </h2>
+             {variant.normalizedHgvs && variant.normalizedHgvs !== variant.hgvs && (
+                <div className="font-mono text-xs text-gray-500 mt-2">
+                    Normalized: <span className="text-gray-300">{variant.normalizedHgvs}</span>
+                    {variant.transcript && (
+                        <span className="ml-2 px-1 bg-white/5 rounded text-gray-400">
+                            {variant.transcript}
+                        </span>
+                    )}
+                </div>
+             )}
          </div>
          <div className="flex items-center gap-4 mt-4 md:mt-0 font-mono text-xs text-gray-400">
              <span>{variant.gene}</span>

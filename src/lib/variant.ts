@@ -1,11 +1,21 @@
 // Amino acid 3-letter to 1-letter mapping
-const AMINO_ACIDS: Record<string, string> = {
+// Amino acid 3-letter to 1-letter mapping
+export const AMINO_ACIDS: Record<string, string> = {
   Ala: 'A', Cys: 'C', Asp: 'D', Glu: 'E', Phe: 'F',
   Gly: 'G', His: 'H', Ile: 'I', Lys: 'K', Leu: 'L',
   Met: 'M', Asn: 'N', Pro: 'P', Gln: 'Q', Arg: 'R',
   Ser: 'S', Thr: 'T', Val: 'V', Trp: 'W', Tyr: 'Y',
   Ter: '*', Stop: '*',
 };
+
+const ONE_TO_THREE: Record<string, string> = Object.entries(AMINO_ACIDS).reduce((acc, [three, one]) => {
+    acc[one] = three;
+    return acc;
+}, {} as Record<string, string>);
+
+export function toThreeLetter(oneLetter: string): string {
+    return ONE_TO_THREE[oneLetter] || oneLetter;
+}
 
 const VALID_AA = new Set(Object.values(AMINO_ACIDS));
 
@@ -14,6 +24,7 @@ export interface ParsedVariant {
   ref: string;
   pos: number;
   alt: string;
+  transcript?: string;
   type: 'missense' | 'nonsense' | 'silent' | 'deletion' | 'insertion' | 'unknown';
 }
 
@@ -23,34 +34,83 @@ export function parseHGVS(hgvs: string): ParsedVariant {
     throw new Error('Invalid HGVS format: empty input');
   }
 
-  // Check for protein HGVS (must contain :p.)
-  const proteinMatch = hgvs.match(/^([A-Z0-9]+):p\.([A-Za-z]+)(\d+)([A-Za-z]+|(?:del|ins|dup|fs))$/);
+  // Check if it's nucleotide HGVS (unsupported for now)
+  if (hgvs.includes(':c.') && !hgvs.includes(':p.')) {
+     throw new Error('Protein HGVS required. Nucleotide HGVS (c.) not supported.');
+  }
   
-  if (!proteinMatch) {
-    // Check if it's nucleotide HGVS
-    if (hgvs.includes(':c.')) {
-      throw new Error('Protein HGVS required (e.g., BRCA1:p.Cys61Gly). Nucleotide HGVS not supported.');
-    }
-    throw new Error('Invalid HGVS format. Expected: GENE:p.RefPosAlt (e.g., BRCA1:p.Cys61Gly)');
+  // 1. Clean the input
+  let cleanInput = hgvs.trim();
+  
+  // 2. Extract Transcript if present (e.g. NM_004333.4)
+  // We don't use it yet but we strip it to get to the protein part
+  const transcriptMatch = cleanInput.match(/(NM_\d+(?:\.\d+)?)/);
+  const transcript = transcriptMatch ? transcriptMatch[1] : undefined;
+  
+  // 3. Isolate Protein Change part
+  // Strategy: Expect "p." prefix, or fall back to last segment after ":" or space
+  let proteinPart = cleanInput;
+  const pIndex = cleanInput.indexOf('p.');
+  if (pIndex >= 0) {
+      proteinPart = cleanInput.slice(pIndex); // "p.Val600Glu"
+  } else {
+      // e.g. "BRAF:V600E" -> "V600E" or "BRAF V600E" -> "V600E"
+      // Split by colon OR space
+      const parts = cleanInput.split(/[: ]+/);
+      proteinPart = parts[parts.length - 1];
+  }
+  
+  // Clean up "p." and trim
+  const cleanChange = proteinPart.replace(/^p\./, '').trim();
+  // 4. Parse Amino Acid Change
+  // Valid formats: Val600Glu, V600E, V600*, Val600Ter, Val600del
+  // Regex:
+  // Group 1 (Ref): [A-Za-z]+ (greedy or non-greedy? Greedy stops at digit)
+  // Group 2 (Pos): \d+
+  // Group 3 (Alt): [A-Za-z]+ OR * OR Ter OR del/ins/dup/fs
+  
+  const match = cleanChange.match(/^([A-Za-z]+)(\d+)([A-Za-z*]+|Ter|del|ins|dup|fs)$/);
+  
+  if (!match) {
+      throw new Error('Invalid HGVS format. Expected protein change (e.g. p.Val600Glu or V600E)');
+  }
+  
+  const [, refRaw, posStr, altRaw] = match;
+  
+  // Handle Gene Name extraction (Best Effort)
+  // If input was "BRAF:p.V600E", we want "BRAF". 
+  // If "NM_004333:V600E", we might default to transcript or UNKNOWN.
+  let gene = 'UNKNOWN';
+  
+  // naive gene extraction: grab first word token that isn't the transcript or p. part
+  // but let's stick to the previous robust regex for gene if possible, or just look at the prefix
+  const prefix = cleanInput.split(':')[0]; // crude but often works for simple formats
+  if (prefix && !prefix.startsWith('NM_') && !prefix.startsWith('p.')) {
+      gene = prefix;
+  }
+  // Better: reuse the previous regex tactic for Gene if the prefix isn't a transcript
+  const geneMatch = cleanInput.match(/^([A-Z0-9]+)[: ]/);
+  if (geneMatch && !geneMatch[1].startsWith('NM_')) {
+      gene = geneMatch[1];
   }
 
-  const [, gene, ref3, posStr, alt3] = proteinMatch;
   const pos = parseInt(posStr, 10);
-
-  // Handle special cases (del, ins, dup, fs)
-  if (['del', 'ins', 'dup', 'fs'].includes(alt3)) {
-    return {
-      gene,
-      ref: convertAA(ref3),
-      pos,
-      alt: alt3,
-      type: alt3 === 'del' ? 'deletion' : alt3 === 'ins' ? 'insertion' : 'unknown',
-    };
+  
+  // Handle special cases
+  if (['del', 'ins', 'dup', 'fs'].includes(altRaw)) {
+       return {
+          gene,
+          ref: convertAA(refRaw),
+          pos,
+          alt: altRaw,
+          transcript,
+          type: altRaw === 'del' ? 'deletion' : altRaw === 'ins' ? 'insertion' : 'unknown',
+       };
   }
 
-  // Convert 3-letter to 1-letter codes
-  const ref = convertAA(ref3);
-  const alt = convertAA(alt3);
+  const ref = convertAA(refRaw);
+  const alt = convertAA(altRaw);
+
 
   // Determine variant type
   let type: ParsedVariant['type'] = 'missense';
@@ -62,6 +122,7 @@ export function parseHGVS(hgvs: string): ParsedVariant {
     ref,
     pos,
     alt,
+    transcript,
     type,
   };
 }

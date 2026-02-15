@@ -1,14 +1,5 @@
-/**
- * VARIANT API ROUTE - HONEST MVP
- * 
- * Pivoted from "interpretation engine" to "evidence briefing tool".
- * Key changes:
- * - Uses CuratedProteinInfo instead of raw JSON
- * - Returns EvidenceCoverage instead of fake confidence
- * - Shows ExplicitUnknowns BEFORE AI summary
- * - Validates variant position before processing
- * - Always includes research disclaimer
- */
+// Force Node.js runtime for Circuit Breaker support
+export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { parseHGVS, normalizeVariant } from '@/lib/variant';
@@ -18,24 +9,34 @@ import {
   curateUniprotData, 
   validateVariantPosition,
   buildEvidenceCoverage,
-  generateUnknowns 
+  generateUnknowns,
+  UniProtUnavailableError
 } from '@/lib/uniprot-curator';
 import { HonestAPIResponse, RESEARCH_DISCLAIMER } from '@/lib/types/honest-response';
 import { getClinVarData, getClinVarUrl, getReviewStars } from '@/lib/clinvar-client';
 import { searchPubMed } from '@/lib/pubmed-client';
 import { getSiftsMapping } from '@/lib/sifts-client';
 import { generateMarkdown } from '@/lib/report-utils';
+import { logAuditEntry } from '@/lib/audit-logger';
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
-  
+  let gene = 'unknown';
+  let residueNumber = 0;
+  let normalizedInput = '';
+  const ip = request.headers.get('x-forwarded-for') || 'unknown';
+
   try {
     // Rate limiting
-    const ip = request.headers.get('x-forwarded-for') || 'unknown';
     const allowed = await variantRateLimiter.check(ip);
     
     if (!allowed) {
       const retryAfter = variantRateLimiter.getRetryAfter(ip);
+      logAuditEntry({
+        hgvs: 'unknown', gene: 'unknown', residue: 0, ip,
+        status: 'rate_limited', processingMs: Date.now() - startTime,
+        evidenceSources: { clinvar: false, structure: false, literature: false },
+      });
       return NextResponse.json(
         { error: 'Rate limit exceeded', retryAfter },
         { status: 429, headers: { 'Retry-After': String(retryAfter) } }
@@ -57,6 +58,9 @@ export async function POST(request: NextRequest) {
     let normalizedVariant;
     try {
       normalizedVariant = normalizeVariant(hgvs);
+      normalizedInput = normalizedVariant.normalized;
+      gene = normalizedVariant.parsed.gene;
+      residueNumber = normalizedVariant.parsed.pos;
     } catch (error) {
       return NextResponse.json(
         { error: `Invalid HGVS: ${(error as Error).message}` },
@@ -64,11 +68,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const gene = normalizedVariant.parsed.gene;
-    const residueNumber = normalizedVariant.parsed.pos;
-
     // ==========================================
-    // STEP 1: CURATE UNIPROT DATA
+    // STEP 1: CURATE UNIPROT DATA (CORE)
     // ==========================================
     let curatedInfo;
     try {
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       const message = (error as Error).message;
       
-      // Check if position validation failed
+      // Position validation failed
       if (message.includes('exceeds') || message.includes('invalid')) {
         return NextResponse.json({
           error: true,
@@ -86,8 +87,31 @@ export async function POST(request: NextRequest) {
         }, { status: 400 });
       }
       
-      // Gene not found
-      if (message.includes('resolve')) {
+      // Gene not found / UniProt Unavailable
+      if (error instanceof UniProtUnavailableError) {
+          console.error(`[HonestAPI] Core data unavailable: ${gene}`);
+           // Graceful degradation for CORE failure
+           // We explicitly return a 200 OK with specific error shape as requested
+           return NextResponse.json({
+               variant: { hgvs: normalizedInput, gene, residue: residueNumber, isValidPosition: true },
+               coreData: { 
+                   unavailable: true, 
+                   reason: 'Core protein data service (UniProt) is unavailable.', 
+                   service: 'uniprot' 
+               },
+               coverage: {
+                   structure: { status: 'unavailable', reason: 'Core data missing' },
+                   clinical: { status: 'unavailable', reason: 'Core data missing' },
+                   domain: { inAnnotatedDomain: false },
+                   literature: { variantSpecificCount: 0, unavailable: true, reason: 'Core data missing' }
+               },
+               unknowns: { items: ['Core data unavailable (UniProt)'], severity: 'critical' },
+               timestamp: new Date().toISOString(),
+               processingMs: Date.now() - startTime,
+           });
+      }
+
+      if (message.includes('resolve') || message.includes('Could not fetch')) {
         return NextResponse.json({
           error: true,
           code: 'UNKNOWN_GENE',
@@ -102,146 +126,162 @@ export async function POST(request: NextRequest) {
     // STEP 2: RESOLVE STRUCTURE
     // ==========================================
     let structureData = null;
-    let availableStructures: any[] = []; // Explicitly typed as array
+    let enrichedAvailableStructures: any[] = [];
+    let availableStructures: any[] = [];
+    
+    // Explicitly handle type for structure result to check for availability
+    // Note: resolveStructure currently returns specific object, not FetchResult.
+    // Ideally resolveStructure should also be robust, but it uses fetch locally or internal logic?
+    // Looking at imports: resolveStructure is from '@/lib/structure'.
+    // We assume resolveStructure logic might fail gracefully or return null.
+    // For P1, if we didn't refactor resolveStructure to use fetchWithRetry yet, we wrap it.
+    
     try {
       const result = await resolveStructure(gene, residueNumber);
       structureData = result.best;
       availableStructures = result.available || [];
+
+      // Enrich structures with SIFTS (now resilient)
+      if (curatedInfo.uniprotId && availableStructures.length > 0) {
+           enrichedAvailableStructures = await Promise.all(
+              availableStructures.map(async (s) => {
+                  let chain = 'A';
+                  let mapped = s.mapped ?? false;
+                  let pdbResidue: string | undefined = undefined;
+
+                  if (s.source === 'PDB') {
+                      const sifts = await getSiftsMapping(curatedInfo.uniprotId, residueNumber, s.id);
+                      
+                      // Handle Resilient SIFTS Response
+                      if (sifts && 'unavailable' in sifts) {
+                          // partial failure of SIFTS for this structure
+                          // Treat as unmapped/unknown
+                          console.warn(`[HonestAPI] SIFTS unavailable for ${s.id}`);
+                          mapped = false; 
+                      } else if (sifts) {
+                          chain = sifts.chain;
+                          mapped = sifts.mapped;
+                          pdbResidue = sifts.pdbResidue;
+                      } else {
+                          mapped = false;
+                      }
+                  } else if (s.source === 'AlphaFold') {
+                      mapped = true;
+                  }
+
+                  return {
+                      id: s.id,
+                      source: s.source,
+                      url: s.url,
+                      resolution: s.resolution,
+                      paeUrl: s.paeUrl,
+                      chain,
+                      mapped,
+                      pdbResidue
+                  };
+              })
+           );
+      }
     } catch (error) {
-      console.log(`[HonestAPI] Structure resolution failed:`, (error as Error).message);
-      // Don't fail - structure is optional
+       console.log(`[HonestAPI] Structure resolution failed:`, (error as Error).message);
     }
-    
-    // DEBUG: Log available structures
-    console.log(`[HonestAPI] DEBUG - Best structure:`, structureData?.id, structureData?.source);
-    console.log(`[HonestAPI] DEBUG - Available structures count:`, availableStructures.length);
-    console.log(`[HonestAPI] DEBUG - Available structures:`, availableStructures.map(s => `${s.source}:${s.id}`).join(', '));
 
     // ==========================================
-    // STEP 2.5: FETCH CLINVAR DATA (Phase-2 Priority 1)
+    // STEP 3: FETCH CLINVAR (Resilient)
     // ==========================================
     const proteinChange = `p.${normalizedVariant.parsed.ref}${normalizedVariant.parsed.pos}${normalizedVariant.parsed.alt}`;
     let clinvarData = null;
-    try {
-      clinvarData = await getClinVarData(gene, proteinChange);
-      if (clinvarData) {
-        console.log(`[HonestAPI] ClinVar found: ${clinvarData.clinicalSignificance}`);
-      } else {
+    
+    // getClinVarData now returns FetchResult<ClinVarResult>
+    const clinvarResult = await getClinVarData(gene, proteinChange);
+    
+    // Prepare data for coverage builder (handling unavailable state)
+    // If unavailable, pass the failure object directly (buildEvidenceCoverage handles it)
+    // If null, pass null.
+    // If success, pass success.
+    
+    const clinvarForBuilder = clinvarResult; 
+    
+    if (clinvarResult && !('unavailable' in clinvarResult)) {
+        // Success case - log it
+        console.log(`[HonestAPI] ClinVar found: ${clinvarResult.clinicalSignificance}`);
+        clinvarData = clinvarResult;
+    } else if (clinvarResult && 'unavailable' in clinvarResult) {
+        console.log(`[HonestAPI] ClinVar unavailable: ${clinvarResult.reason}`);
+    } else {
         console.log(`[HonestAPI] No ClinVar entry for ${gene}:${proteinChange}`);
-      }
-    } catch (error) {
-      console.log(`[HonestAPI] ClinVar fetch failed:`, (error as Error).message);
-      // Don't fail - ClinVar is optional
     }
 
     // ==========================================
-    // STEP 2.6: FETCH LITERATURE (Phase-2 Priority 2)
+    // STEP 4: FETCH LITERATURE (Resilient)
     // ==========================================
     let pubmedData = null;
-    try {
-      pubmedData = await searchPubMed(gene, proteinChange);
-      if (pubmedData) {
-        console.log(`[HonestAPI] PubMed found: ${pubmedData.count} papers`);
-      }
-    } catch (error) {
-      console.log(`[HonestAPI] PubMed search failed:`, (error as Error).message);
+    const pubmedResult = await searchPubMed(gene, proteinChange);
+    const pubmedForBuilder = pubmedResult;
+
+    if (pubmedResult && !('unavailable' in pubmedResult)) {
+         if (pubmedResult.count > 0) {
+             console.log(`[HonestAPI] PubMed found: ${pubmedResult.count} papers`);
+         }
+         pubmedData = pubmedResult;
+    } else if (pubmedResult && 'unavailable' in pubmedResult) {
+         console.log(`[HonestAPI] PubMed unavailable: ${pubmedResult.reason}`);
     }
 
     // ==========================================
-    // STEP 2.65: ENRICH AVAILABLE STRUCTURES (Phase-4 Priority 1)
+    // STEP 5: BUILD EVIDENCE COVERAGE
     // ==========================================
-    let enrichedAvailableStructures: any[] = [];
-    if (availableStructures.length > 0 && curatedInfo.uniprotId) {
-      try {
-        enrichedAvailableStructures = await Promise.all(
-          availableStructures.map(async (s) => {
-            let chain = 'A';
-            let mapped = s.mapped ?? false;
-            let pdbResidue: string | undefined = undefined;
+    
+    // Refine structure data for builder:
+    // We already enriched it. If `resolveStructure` failed entirely it's null.
+    // We didn't add "Unavailable" state to `resolveStructure` yet (it wasn't in list of clients to refactor in P1, explicitly).
+    // So we assume structure is "none" if it failed, unless we want to manually wrap it.
+    // For now, passing `structureData` (enriched) is fine.
+    
+    // We need to re-assemble structure object for builder with enriched structures
+    // structureData comes from resolveStructure().best, which does NOT have availableStructures.
+    // We must inject it here.
+    let structureForBuilder = structureData ? {
+        ...structureData,
+        availableStructures: enrichedAvailableStructures.length > 0 ? enrichedAvailableStructures : availableStructures
+    } : null;
 
-            if (s.source === 'PDB') {
-              const sifts = await getSiftsMapping(curatedInfo.uniprotId, residueNumber, s.id);
-              if (sifts) {
-                chain = sifts.chain;
-                mapped = sifts.mapped;
-                pdbResidue = sifts.pdbResidue;
-              } else {
-                mapped = false;
-              }
-            } else if (s.source === 'AlphaFold') {
-              mapped = true;
-              chain = 'A';
-            }
-
-            return {
-              id: s.id,
-              source: s.source,
-              url: s.url, // Phase-4: Pass API-provided URL for AlphaFold
-              resolution: s.resolution,
-              paeUrl: s.paeUrl, // Phase-4
-              chain,
-              mapped,
-              pdbResidue
-            };
-          })
-        );
-      } catch (e) {
-        console.error('[HonestAPI] Failed to enrich structures:', e);
-      }
+    // Prepare ClinVar data for builder
+    let clinvarBuilderData = null;
+    if (clinvarData) {
+        clinvarBuilderData = {
+           significance: clinvarData.clinicalSignificance,
+           reviewStatus: clinvarData.reviewStatus,
+           stars: getReviewStars(clinvarData.reviewStatus),
+           clinvarId: clinvarData.clinvarId,
+           url: getClinVarUrl(clinvarData.clinvarId),
+           conditions: clinvarData.conditions
+        };
+    } else if (clinvarResult && 'unavailable' in clinvarResult) {
+        clinvarBuilderData = { unavailable: true as const, reason: clinvarResult.reason };
     }
 
-    // ==========================================
-    // STEP 2.7: SIFTS MAPPING (Phase-2 Priority 3)
-    // ==========================================
-    let siftsData = null;
-    if (structureData && structureData.source === 'PDB' && curatedInfo.uniprotId) {
-      try {
-        siftsData = await getSiftsMapping(curatedInfo.uniprotId, residueNumber, structureData.id);
-        if (siftsData) {
-           console.log(`[HonestAPI] SIFTS mapped: Chain ${siftsData.chain}, Residue ${siftsData.pdbResidue}`);
-        } else {
-           console.log(`[HonestAPI] SIFTS mapping failed for ${structureData.id}`);
-        }
-      } catch (error) {
-        console.log(`[HonestAPI] SIFTS error:`, (error as Error).message);
-      }
-    }
-
-    // ==========================================
-    // STEP 3: BUILD EVIDENCE COVERAGE
-    // ==========================================
     const coverage = await buildEvidenceCoverage(
       curatedInfo,
-      structureData ? {
-        source: structureData.source,
-        id: structureData.id,
-        resolution: structureData.resolution,
-        paeUrl: structureData.paeUrl, // Phase-4
-        sifts: siftsData, // Pass SIFTS data
-        availableStructures: enrichedAvailableStructures
-      } : null,
-      clinvarData ? {
-        significance: clinvarData.clinicalSignificance,
-        reviewStatus: clinvarData.reviewStatus,
-        stars: getReviewStars(clinvarData.reviewStatus),
-        clinvarId: clinvarData.clinvarId,
-        url: getClinVarUrl(clinvarData.clinvarId),
-        conditions: clinvarData.conditions,
-      } : null,
-      pubmedData // Pass full object, not just count
+      structureForBuilder,
+      clinvarBuilderData,
+      pubmedForBuilder   // Can be success | failure | null
     );
 
     // ==========================================
-    // STEP 4: GENERATE EXPLICIT UNKNOWNS
+    // STEP 6: GENERATE EXPLICIT UNKNOWNS
     // ==========================================
     const unknowns = generateUnknowns(curatedInfo, coverage);
 
     // ==========================================
-    // STEP 6: BUILD HONEST RESPONSE
+    // STEP 7: BUILD RESPONSE
     // ==========================================
     const response: HonestAPIResponse = {
       variant: {
-        hgvs: normalizedVariant.normalized,
+        hgvs: hgvs, // Use original input for display/header as requested
+        originalHgvs: hgvs,
+        normalizedHgvs: normalizedInput,
+        transcript: normalizedVariant.parsed.transcript,
         gene: curatedInfo.gene,
         residue: residueNumber,
         isValidPosition: true,
@@ -253,7 +293,28 @@ export async function POST(request: NextRequest) {
       processingMs: Date.now() - startTime,
     };
 
-    const format = request.nextUrl.searchParams.get('format');
+    // Audit log
+    logAuditEntry({
+      hgvs: normalizedInput,
+      gene,
+      residue: residueNumber,
+      ip,
+      status: 'success', // It is a success 200, even if data is partial
+      processingMs: Date.now() - startTime,
+      evidenceSources: {
+        clinvar: !!clinvarData,
+        structure: !!structureData,
+        literature: !!(pubmedData && pubmedData.count > 0),
+      },
+    });
+
+    // Handle Markdown Format
+    let format = 'json';
+    try {
+        const url = new URL(request.url);
+        format = url.searchParams.get('format') || 'json';
+    } catch {}
+
     if (format === 'md' || format === 'markdown') {
        const md = generateMarkdown(response);
        return new NextResponse(md, {
@@ -266,6 +327,12 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('[HonestAPI] Error:', error);
+    logAuditEntry({
+      hgvs: 'unknown', gene, residue: residueNumber, ip: ip,
+      status: 'error', processingMs: Date.now() - startTime,
+      evidenceSources: { clinvar: false, structure: false, literature: false },
+      errorCode: (error as Error).message,
+    });
     return NextResponse.json(
       { error: 'Internal server error', message: (error as Error).message },
       { status: 500 }
@@ -273,7 +340,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Keep old endpoint for backward compatibility during transition
+// Keep old endpoint for backward compatibility
 export async function GET(request: NextRequest) {
   return NextResponse.json({
     message: 'VariantLens API - Honest MVP',

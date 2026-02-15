@@ -47,7 +47,8 @@ export interface CuratedProteinInfo {
 export interface EvidenceCoverage {
   // Structure availability
   structure: {
-    status: 'experimental' | 'predicted' | 'none';
+    status: 'experimental' | 'predicted' | 'none' | 'unavailable';
+    reason?: string; // For unavailable status
     source?: 'PDB' | 'AlphaFold';
     id?: string;
     resolution?: number;
@@ -74,7 +75,8 @@ export interface EvidenceCoverage {
   
   // Clinical annotation status (Phase-2: ClinVar integration)
   clinical: {
-    status: 'pathogenic' | 'likely_pathogenic' | 'uncertain' | 'likely_benign' | 'benign' | 'none';
+    status: 'pathogenic' | 'likely_pathogenic' | 'uncertain' | 'likely_benign' | 'benign' | 'none' | 'unavailable';
+    reason?: string; // For unavailable status
     source?: 'ClinVar' | 'HGMD';
     significance?: string;      // Raw ClinVar text
     reviewStatus?: string;      // ClinVar review status
@@ -93,6 +95,8 @@ export interface EvidenceCoverage {
   // Literature
   literature: {
     variantSpecificCount: number;
+    unavailable?: boolean; // For unavailable status
+    reason?: string;       // For unavailable status
     query?: string;         // Search transparency
     papers?: Array<{        // Top 5 snippets
       title: string;
@@ -132,12 +136,15 @@ export const UNKNOWN_MESSAGES = {
 export interface HonestAPIResponse {
   // Input echo
   variant: {
-    hgvs: string;
+    hgvs: string;          // Main display string (usually requested input)
+    originalHgvs?: string; // Explicit requested input
+    normalizedHgvs?: string; // Canonical form (Gene:p.RefPosAlt)
+    transcript?: string;   // Transcript if detected
     gene: string;
     residue: number;
     isValidPosition: boolean;
   };
-  
+
   // Evidence indicators (NO percentages)
   coverage: EvidenceCoverage;
   
@@ -155,6 +162,9 @@ export interface HonestAPIResponse {
 export interface HonestReportData {
   variant: {
     hgvs: string;
+    originalHgvs?: string;
+    normalizedHgvs?: string;
+    transcript?: string;
     gene: string;
     residue: number;
   };
