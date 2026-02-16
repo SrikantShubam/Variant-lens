@@ -154,18 +154,28 @@ export default function ReportView({ data }: ReportViewProps) {
          <div>
              <div className="font-mono text-xs text-primary mb-2 tracking-widest uppercase">Evidence Briefing</div>
              <h2 className="text-4xl md:text-6xl font-heading font-bold text-white tracking-tight uppercase">
-                {variant.hgvs}
+                {variant.normalizedHgvs || variant.hgvs}
              </h2>
-             {variant.normalizedHgvs && variant.normalizedHgvs !== variant.hgvs && (
-                <div className="font-mono text-xs text-gray-500 mt-2">
-                    Normalized: <span className="text-gray-300">{variant.normalizedHgvs}</span>
-                    {variant.transcript && (
-                        <span className="ml-2 px-1 bg-white/5 rounded text-gray-400">
+             
+             {/* Identity Metadata */}
+             <div className="flex flex-col gap-1 mt-2">
+                 {/* 1. Transcript Badge (if present) */}
+                 {variant.transcript && (
+                    <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-gray-500 uppercase tracking-widest">Transcript</span>
+                        <span className="px-1.5 py-0.5 bg-primary/10 border border-primary/20 rounded text-primary text-xs font-mono">
                             {variant.transcript}
                         </span>
-                    )}
-                </div>
-             )}
+                    </div>
+                 )}
+                 
+                 {/* 2. Original Input (if different) */}
+                 {variant.hgvs !== variant.normalizedHgvs && (
+                    <div className="font-mono text-xs text-gray-500">
+                        Submitted: <span className="text-gray-400 border-b border-gray-700 border-dashed">{variant.hgvs}</span>
+                    </div>
+                 )}
+             </div>
          </div>
          <div className="flex items-center gap-4 mt-4 md:mt-0 font-mono text-xs text-gray-400">
              <span>{variant.gene}</span>
