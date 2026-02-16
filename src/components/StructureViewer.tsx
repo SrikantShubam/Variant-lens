@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import Script from "next/script";
 import { Play, ExternalLink, Loader2 } from "lucide-react";
 
@@ -37,139 +37,104 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
   // State Machine
   const [viewState, setViewState] = useState<ViewerState>('lite');
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [scriptLoaded, setScriptLoaded] = useState(false);
-  
+  const [scriptsReady, setScriptsReady] = useState(false);
+  const [viewerInstanceId, setViewerInstanceId] = useState(0);
+
   // Computed IDs
   const isAlphaFold = source === 'AlphaFold' || pdbId.startsWith('AF-');
   const cleanPdbId = isAlphaFold ? pdbId : pdbId.toLowerCase();
   
-  const config = useMemo(() => getViewerConfig(sifts, uniprotResidue), [sifts, uniprotResidue]);
-
-  // SINGLE FLIGHT PATTERN
-  // requestIdRef increments on every structure change.
-  // Async callbacks only proceed if requestId matches current.
-  const requestIdRef = useRef(0);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // RESET ON PROP CHANGE
+  // Reset on prop change
   useEffect(() => {
-    requestIdRef.current += 1;
     setViewState('lite');
     setLoadError(null);
-    cleanup();
+    setViewerInstanceId(prev => prev + 1);
   }, [pdbId, source]);
 
-  // CLEANUP ON UNMOUNT
+  // 1. Script Readiness Check
   useEffect(() => {
-      return () => cleanup();
-  }, []);
-
-  const cleanup = () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-      
-      // If we had a real molstar plugin instance we would destroy it here.
-      // Since we use the web component, we might rely on it cleaning itself up 
-      // when unmounted from DOM, but let's be safe.
-      if (viewerRef.current) {
-          // Remove listeners if any (though we re-add them on init)
-      }
-  };
-
-  // Initialize Viewer Logic
-  const initViewer = useCallback(() => {
-    // Start new request
-    requestIdRef.current += 1;
-    const currentRid = requestIdRef.current; // Capture ID
-
-    setViewState('loading');
-    setLoadError(null);
-
-    // Hard Timeout Guard (8s)
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-        if (requestIdRef.current === currentRid) {
-            console.warn(`[StructureViewer] Init timed out (8s) for req ${currentRid}`);
-            setLoadError("Viewer initialization timed out");
-            setViewState('error');
-            cleanup(); // Ensure we kill any pending nonsense
-        }
-    }, 8000);
-
-    // Wait for Script + Container + Web Component definition
-    const checkDependency = () => {
-        if (requestIdRef.current !== currentRid) return; // Stale request
-
-        // Check if script loaded and custom element defined
-        if (window.customElements && window.customElements.get('pdbe-molstar')) {
-            // Ready to bind
-            if (timeoutRef.current) clearTimeout(timeoutRef.current);
-            setupViewer(currentRid);
-        } else {
-            // Poll for script load
-            setTimeout(checkDependency, 100);
-        }
-    };
+    if (scriptsReady) return;
     
-    checkDependency();
-  }, [scriptLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Setup viewer instance
-  const setupViewer = (rid: number) => {
-     if (requestIdRef.current !== rid) return;
-     
-     // 1. Validate DOM
-     if (!viewerRef.current || !containerRef.current) {
-         setLoadError("Viewer container reference missing");
-         setViewState('error');
-         return;
-     }
-
-     // Validate Dimensions (Mol* crashes on 0 height)
-     if (containerRef.current.clientHeight === 0 || containerRef.current.clientWidth === 0) {
-         console.warn(`[StructureViewer] Container has 0 dimensions. Aborting init.`);
-         setLoadError("Viewer container not visible");
-         setViewState('error');
-         return;
-     }
-
-     const viewer = viewerRef.current;
-     
-     // 2. Setup Event Listeners
-     const eventHandler = (e: any) => {
-        if (requestIdRef.current !== rid) return;
-
-        if (e.detail?.eventType === 'loadComplete') {
-            console.log(`[StructureViewer] Load Complete (Req: ${rid})`);
-            setViewState('ready');
-            // Highlight removed for demo stability (Web Component API mismatch risk)
-            // If needed later, use proper PDBe highlight params via props, not imperative API
-        } else if (e.detail?.eventType === 'loadError') {
-             console.error(`[StructureViewer] Internal Load Error (Req: ${rid})`, e.detail);
-             setLoadError("Structure failed to load");
-             setViewState('error');
+    // Poll for global objects
+    const interval = setInterval(() => {
+        const pluginLoaded = (window as any).PDBeMolstarPlugin && window.customElements && window.customElements.get('pdbe-molstar');
+        if (pluginLoaded) {
+            setScriptsReady(true);
+            clearInterval(interval);
         }
-     };
+    }, 100);
+    
+    return () => clearInterval(interval);
+  }, [scriptsReady]);
 
-     // Add listener
-     // The web component emits 'PDB.molstar.view.event' on the element itself
-     if (viewer) {
-        viewer.addEventListener('PDB.molstar.view.event', eventHandler);
-        
-        // STORE CLEANUP FUNCTION
-        // We attach this to the viewer element so we can remove it later? 
-        // Or better: we rely on React ref cleanup or a custom cleanup method?
-        // Actually, we can just remove it in the cleanup() function if we track the handler.
-        // But for now, since we remount the whole component on change (key prop), 
-        // the element is destroyed and listeners attached to IT are gone.
-        // The only risk is global window listeners. PDBe might add some.
-     }
-  };
+  // 2. Initialization Effect (The Source of Truth)
+  useEffect(() => {
+      if (viewState !== 'loading') return;
 
-  // Removed imperative applyHighlight to prevent "undefined transform" crashes
-  // The web component should handle highlighting via props (if supported) or we accept no highlight for stability.
+      const currentId = viewerInstanceId;
+      let timeoutId: NodeJS.Timeout;
+      let cleanupFn: (() => void) | undefined;
 
-  // Viewer Props (Optimization: BCIF + fewer features)
+      const attemptInit = () => {
+          if (currentId !== viewerInstanceId) return; 
+
+          // Wait for scripts
+          if (!scriptsReady) return; // Will re-run when scriptsReady changes
+
+          // Wait for Container
+          const container = containerRef.current;
+          if (!container || container.clientHeight === 0) {
+              requestAnimationFrame(attemptInit);
+              return;
+          }
+
+          // Wait for Web Component
+          const viewer = viewerRef.current;
+          if (!viewer) {
+              requestAnimationFrame(attemptInit);
+              return;
+          }
+
+          // Ready to bind
+          const handleEvent = (e: any) => {
+              if (currentId !== viewerInstanceId) return;
+              
+              if (e.detail?.eventType === 'loadComplete') {
+                  setViewState('ready');
+                  if (timeoutId) clearTimeout(timeoutId);
+              } else if (e.detail?.eventType === 'loadError') {
+                  console.error("[StructureViewer] Load Error", e.detail);
+                  setLoadError("Structure failed to load");
+                  setViewState('error');
+                  if (timeoutId) clearTimeout(timeoutId);
+              }
+          };
+
+          viewer.addEventListener('PDB.molstar.view.event', handleEvent);
+          
+          // Hard Timeout (15s to be safe for network)
+          timeoutId = setTimeout(() => {
+              if (currentId === viewerInstanceId) {
+                  setLoadError("Initialization timed out");
+                  setViewState('error');
+              }
+          }, 15000);
+
+          cleanupFn = () => {
+              viewer.removeEventListener('PDB.molstar.view.event', handleEvent);
+          };
+      };
+
+      attemptInit();
+
+      // Effect Cleanup
+      return () => {
+          if (cleanupFn) cleanupFn();
+          if (timeoutId) clearTimeout(timeoutId);
+      };
+  }, [viewState, scriptsReady, viewerInstanceId]);
+
+  // Viewer Props
   const viewerProps = isAlphaFold 
     ? { 
         'custom-data-url': structureUrl?.replace('.cif', '.bcif') || 
@@ -193,7 +158,6 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
      ? `https://alphafold.ebi.ac.uk/files/${cleanPdbId}-model_v4.png` 
      : `https://cdn.rcsb.org/images/structures/${cleanPdbId.substring(1, 3)}/${cleanPdbId}/${cleanPdbId}_chain_front_A_200.jpg`; 
 
-  // RENDER
   return (
     <div 
         ref={containerRef}
@@ -201,23 +165,12 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
     >
         {/* EXTERNAL SCRIPTS */}
         <link rel="stylesheet" type="text/css" href="/pdbe/pdbe-molstar-light.css" />
-        <Script 
-            src="/pdbe/pdbe-molstar-plugin.js" 
-            strategy="lazyOnload" 
-            onLoad={() => setScriptLoaded(true)}
-            onError={() => {
-                if (viewState === 'loading') {
-                     setLoadError("Failed to load viewer component");
-                     setViewState('error');
-                }
-            }}
-        />
+        <Script src="/pdbe/pdbe-molstar-plugin.js" strategy="lazyOnload" />
         <Script src="/pdbe/pdbe-molstar-component.js" strategy="lazyOnload" />
 
         {/* LITE MODE UI */}
         {viewState === 'lite' && (
             <div className="absolute inset-0 z-10 bg-gray-50 flex flex-col items-center justify-center">
-                 {/* Placeholder Image */}
                  <div className="absolute inset-0 opacity-50 bg-gray-200" 
                       style={{ 
                           backgroundImage: `url(${staticImageUrl})`, 
@@ -235,7 +188,10 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
                      
                      <div className="flex gap-3">
                          <button 
-                            onClick={initViewer}
+                            onClick={() => {
+                                setViewerInstanceId(prev => prev + 1);
+                                setViewState('loading');
+                            }}
                             className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-all transform hover:scale-105"
                          >
                             <Play fill="currentColor" size={16} /> Load Interactive 3D
@@ -266,8 +222,8 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
                 <div className="mt-4 flex gap-3 text-xs">
                     <button 
                         onClick={() => { 
-                            cleanup(); 
-                            setViewState('lite'); // Cancel -> Back to Lite
+                            setViewState('lite'); 
+                            setViewerInstanceId(prev => prev + 1); // Cancel checks
                         }}
                         className="text-red-500 hover:underline"
                     >
@@ -283,7 +239,15 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
                  <p className="font-bold mb-2">Structure Viewer Unavailable</p>
                  <p className="text-sm text-gray-400 mb-6">{loadError || "An unknown error occurred"}</p>
                  <div className="flex gap-3">
-                     <button onClick={initViewer} className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 text-sm">Retry</button>
+                     <button 
+                        onClick={() => {
+                            setViewerInstanceId(prev => prev + 1);
+                            setViewState('loading');
+                        }}
+                        className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 text-sm"
+                     >
+                        Retry
+                     </button>
                      <a href={`https://www.rcsb.org/structure/${cleanPdbId}`} target="_blank" className="px-4 py-2 border border-gray-600 rounded hover:bg-gray-800 text-sm flex items-center gap-2">
                          <ExternalLink size={14}/> Open in RCSB
                      </a>
@@ -295,7 +259,7 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
         {(viewState === 'loading' || viewState === 'ready') && (
             <pdbe-molstar
                 ref={viewerRef}
-                key={`${cleanPdbId}-${requestIdRef.current}`} // Force remount if needed, though usually stable
+                key={`${cleanPdbId}-${viewerInstanceId}`} // Force fresh mount on retry/new request
                 id="pdbe-molstar-widget"
                 {...viewerProps}
                 hide-controls="true"
@@ -305,7 +269,6 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
   );
 }
 
-// Wrapper with Error Boundary
 export default function StructureViewer(props: StructureViewerProps) {
     return (
         <StructureViewerErrorBoundary pdbId={props.pdbId} source={props.source}>
