@@ -92,6 +92,7 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
             console.warn(`[StructureViewer] Init timed out (8s) for req ${currentRid}`);
             setLoadError("Viewer initialization timed out");
             setViewState('error');
+            cleanup(); // Ensure we kill any pending nonsense
         }
     }, 8000);
 
@@ -141,31 +142,32 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
         if (e.detail?.eventType === 'loadComplete') {
             console.log(`[StructureViewer] Load Complete (Req: ${rid})`);
             setViewState('ready');
-            // Apply highlight
-            setTimeout(() => {
-                if (requestIdRef.current === rid) applyHighlight(viewer);
-            }, 500); 
+            // Highlight removed for demo stability (Web Component API mismatch risk)
+            // If needed later, use proper PDBe highlight params via props, not imperative API
+        } else if (e.detail?.eventType === 'loadError') {
+             console.error(`[StructureViewer] Internal Load Error (Req: ${rid})`, e.detail);
+             setLoadError("Structure failed to load");
+             setViewState('error');
         }
      };
 
      // Add listener
-     // Note: The web component might emit events globally or on the element.
-     if (typeof viewer.addEventListener === 'function') {
+     // The web component emits 'PDB.molstar.view.event' on the element itself
+     if (viewer) {
         viewer.addEventListener('PDB.molstar.view.event', eventHandler);
+        
+        // STORE CLEANUP FUNCTION
+        // We attach this to the viewer element so we can remove it later? 
+        // Or better: we rely on React ref cleanup or a custom cleanup method?
+        // Actually, we can just remove it in the cleanup() function if we track the handler.
+        // But for now, since we remount the whole component on change (key prop), 
+        // the element is destroyed and listeners attached to IT are gone.
+        // The only risk is global window listeners. PDBe might add some.
      }
   };
 
-  const applyHighlight = (viewer: any) => {
-    if (!config.highlight || !viewer?.visual?.select) return;
-    try {
-        viewer.visual.select({
-            data: [config.highlight],
-            nonSelectedColor: { r: 255, g: 255, b: 255 }
-        });
-    } catch (e) {
-        console.warn("[StructureViewer] Highlight failed", e);
-    }
-  };
+  // Removed imperative applyHighlight to prevent "undefined transform" crashes
+  // The web component should handle highlighting via props (if supported) or we accept no highlight for stability.
 
   // Viewer Props (Optimization: BCIF + fewer features)
   const viewerProps = isAlphaFold 
@@ -247,7 +249,7 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
                          </a>
                      </div>
                      
-                     {sifts?.mapped && (
+                     {sifts?.mapped && sifts.pdbResidue && sifts.pdbResidue !== '?' && (
                         <p className="text-xs text-green-700 font-medium bg-green-50 px-2 py-1 rounded border border-green-200">
                             ✓ Mapping Available: {sifts.chain}:{sifts.pdbResidue}
                         </p>

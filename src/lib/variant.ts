@@ -42,26 +42,46 @@ export function parseHGVS(hgvs: string): ParsedVariant {
   // 1. Clean the input
   let cleanInput = hgvs.trim();
   
+// Helper to extract protein part from potentially transcript-prefixed string
+// e.g. "NM_004333.6:p.Val600Glu" -> "Val600Glu"
+// e.g. "p.V600E" -> "V600E" 
+export function extractProteinPart(input: string): string | null {
+  // Find the first protein-like token anywhere in the string
+  // Handles: "...:p.Val600Glu", "p.V600E", "BRAF(p.Val600Glu)"
+  // Matches: p. (optional) + 1/3 letters + digits + 1/3 letters or * or Ter
+  const m = input.match(/(?:p\.)?([A-Za-z]{1,3})(\d+)([A-Za-z]{1,3}|\*|Ter)/);
+  if (!m) return null;
+  // Regex groups: 1=Ref, 2=Pos, 3=Alt
+  return `${m[1]}${m[2]}${m[3]}`; 
+}
+
+export function parseHGVS(hgvs: string): ParsedVariant {
+  // Validate basic format
+  if (!hgvs || typeof hgvs !== 'string') {
+    throw new Error('Invalid HGVS format: empty input');
+  }
+
+  // Check if it's nucleotide HGVS (unsupported for now)
+  if (hgvs.includes(':c.') && !hgvs.includes(':p.')) {
+     throw new Error('Protein HGVS required. Nucleotide HGVS (c.) not supported.');
+  }
+  
+  // 1. Clean the input
+  let cleanInput = hgvs.trim();
+  
   // 2. Extract Transcript if present (e.g. NM_004333.4)
-  // We don't use it yet but we strip it to get to the protein part
   const transcriptMatch = cleanInput.match(/(NM_\d+(?:\.\d+)?)/);
   const transcript = transcriptMatch ? transcriptMatch[1] : undefined;
   
   // 3. Isolate Protein Change part
-  // Strategy: Expect "p." prefix, or fall back to last segment after ":" or space
-  let proteinPart = cleanInput;
-  const pIndex = cleanInput.indexOf('p.');
-  if (pIndex >= 0) {
-      proteinPart = cleanInput.slice(pIndex); // "p.Val600Glu"
-  } else {
-      // e.g. "BRAF:V600E" -> "V600E" or "BRAF V600E" -> "V600E"
-      // Split by colon OR space
-      const parts = cleanInput.split(/[: ]+/);
-      proteinPart = parts[parts.length - 1];
-  }
+  // Use robust extractor instead of slicing, which is fragile to suffix noise
+  const cleanChange = extractProteinPart(cleanInput);
   
-  // Clean up "p." and trim
-  const cleanChange = proteinPart.replace(/^p\./, '').trim();
+  if (!cleanChange) {
+      // Fallback: try split logic if strictly formatted, but likely invalid
+      throw new Error('Invalid HGVS format. Expected protein change (e.g. p.Val600Glu or V600E)');
+  }
+
   // 4. Parse Amino Acid Change
   // Valid formats: Val600Glu, V600E, V600*, Val600Ter, Val600del
   // Regex:
