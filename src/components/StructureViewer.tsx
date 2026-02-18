@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 import Script from "next/script";
 import { Play, ExternalLink, Loader2 } from "lucide-react";
 
-import { getViewerConfig } from "./structure-utils";
 import { StructureViewerErrorBoundary } from "./structure/error-boundary";
 
 interface StructureViewerProps {
@@ -29,16 +28,25 @@ declare global {
 }
 
 type ViewerState = 'lite' | 'loading' | 'ready' | 'error';
+type ScriptLoadState = { component: boolean };
 
 function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, uniprotResidue }: StructureViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any>(null);
+  const activeInstanceRef = useRef(0);
+  const widgetIdRef = useRef(`pdbe-molstar-widget-${Math.random().toString(36).slice(2, 10)}`);
   
   // State Machine
   const [viewState, setViewState] = useState<ViewerState>('lite');
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [scriptsReady, setScriptsReady] = useState(false);
+  const [scriptLoadState, setScriptLoadState] = useState<ScriptLoadState>(() => {
+    if (typeof window === 'undefined') return { component: false };
+    const hasElement = typeof customElements !== 'undefined' && !!customElements.get('pdbe-molstar');
+    const hasPlugin = !!(window as any).PDBeMolstarPlugin;
+    return { component: hasElement || hasPlugin };
+  });
   const [viewerInstanceId, setViewerInstanceId] = useState(0);
+  const scriptsReady = scriptLoadState.component;
 
   // Computed IDs
   const isAlphaFold = source === 'AlphaFold' || pdbId.startsWith('AF-');
@@ -51,95 +59,257 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
     setViewerInstanceId(prev => prev + 1);
   }, [pdbId, source]);
 
-  // 1. Script Readiness Check
+  useEffect(() => {
+    activeInstanceRef.current = viewerInstanceId;
+  }, [viewerInstanceId]);
+
   useEffect(() => {
     if (scriptsReady) return;
-    
-    // Poll for global objects
-    const interval = setInterval(() => {
-        const pluginLoaded = (window as any).PDBeMolstarPlugin && window.customElements && window.customElements.get('pdbe-molstar');
-        if (pluginLoaded) {
-            setScriptsReady(true);
-            clearInterval(interval);
-        }
-    }, 100);
-    
-    return () => clearInterval(interval);
-  }, [scriptsReady]);
+    if (typeof window === 'undefined') return;
 
-  // 2. Initialization Effect (The Source of Truth)
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let done = false;
+
+    const probe = () => {
+      if (done) return;
+      const hasElement = typeof customElements !== 'undefined' && !!customElements.get('pdbe-molstar');
+      const hasPlugin = !!(window as any).PDBeMolstarPlugin;
+      if (hasElement || hasPlugin) {
+        done = true;
+        setScriptLoadState({ component: true });
+        return;
+      }
+      timeoutId = setTimeout(probe, 120);
+    };
+
+    probe();
+    return () => {
+      done = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [scriptsReady, viewerInstanceId, cleanPdbId]);
+
+  // Handle known async plugin crashes gracefully (prevents global runtime crash overlay).
   useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      const msg = String(event.error?.message || event.message || "");
+      if (msg.includes("reading 'transform'") || msg.includes("Invalid data cell")) {
+        event.preventDefault?.();
+        setLoadError("Viewer engine crashed while switching structures. Please retry.");
+        setViewState('error');
+      }
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const msg = String(reason?.message || reason || "");
+      if (msg.includes("reading 'transform'") || msg.includes("Invalid data cell")) {
+        event.preventDefault?.();
+        setLoadError("Viewer engine crashed while processing structure data.");
+        setViewState('error');
+      }
+    };
+
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, []);
+
+  useEffect(() => {
+      if (!scriptsReady) return;
       if (viewState !== 'loading') return;
 
       const currentId = viewerInstanceId;
-      let timeoutId: NodeJS.Timeout;
-      let cleanupFn: (() => void) | undefined;
+      let hardTimeoutId: NodeJS.Timeout | undefined;
+      let containerTimeoutId: NodeJS.Timeout | undefined;
+      let canvasProbeId: NodeJS.Timeout | undefined;
+      let instanceProbeId: NodeJS.Timeout | undefined;
+      let observer: ResizeObserver | undefined;
+      let cleanupFns: Array<() => void> = [];
+      let finished = false;
 
-      const attemptInit = () => {
-          if (currentId !== viewerInstanceId) return; 
+      const viewer = viewerRef.current;
+      const container = containerRef.current;
+      
+      if (!viewer || !container) return;
 
-          // Wait for scripts
-          if (!scriptsReady) return; // Will re-run when scriptsReady changes
+      console.log(`[StructureViewer] Init attempt #${currentId} for ${cleanPdbId}`);
 
-          // Wait for Container
-          const container = containerRef.current;
-          if (!container || container.clientHeight === 0) {
-              requestAnimationFrame(attemptInit);
-              return;
-          }
+      const isStale = () => activeInstanceRef.current !== currentId;
 
-          // Wait for Web Component
-          const viewer = viewerRef.current;
-          if (!viewer) {
-              requestAnimationFrame(attemptInit);
-              return;
-          }
-
-          // Ready to bind
-          const handleEvent = (e: any) => {
-              if (currentId !== viewerInstanceId) return;
-              
-              if (e.detail?.eventType === 'loadComplete') {
-                  setViewState('ready');
-                  if (timeoutId) clearTimeout(timeoutId);
-              } else if (e.detail?.eventType === 'loadError') {
-                  console.error("[StructureViewer] Load Error", e.detail);
-                  setLoadError("Structure failed to load");
-                  setViewState('error');
-                  if (timeoutId) clearTimeout(timeoutId);
-              }
-          };
-
-          viewer.addEventListener('PDB.molstar.view.event', handleEvent);
-          
-          // Hard Timeout (15s to be safe for network)
-          timeoutId = setTimeout(() => {
-              if (currentId === viewerInstanceId) {
-                  setLoadError("Initialization timed out");
-                  setViewState('error');
-              }
-          }, 15000);
-
-          cleanupFn = () => {
-              viewer.removeEventListener('PDB.molstar.view.event', handleEvent);
-          };
+      const completeWithError = (message: string) => {
+          if (finished || isStale()) return;
+          finished = true;
+          console.error(`[StructureViewer] ${message}`);
+          setLoadError(message);
+          setViewState('error');
       };
 
-      attemptInit();
+      const completeReady = () => {
+          if (finished || isStale()) return;
+          finished = true;
+          console.log(`[StructureViewer] viewer ready`);
+          setViewState('ready');
+      };
 
-      // Effect Cleanup
+      // Global timeout across the full initialization path (instance + events + data fetch).
+      hardTimeoutId = setTimeout(() => {
+          if (isStale() || finished) return;
+          completeWithError("Initialization timed out after 60s (network, data, or viewer engine issue)");
+      }, 60000);
+
+      const hasContainerSize = () => {
+          const rect = container.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+      };
+
+      const bindEvents = () => {
+          if (isStale() || finished) return;
+
+          const eventTargets: Array<{ target: EventTarget; name: string }> = [
+            { target: viewer, name: 'PDB.molstar.view.event' },
+            { target: viewer, name: 'pdbe-molstar-event' }
+          ];
+
+          const onViewerEvent = (e: any) => {
+              if (isStale() || finished) return;
+              const detail = e?.detail || {};
+              const eventType = String(detail.eventType || detail.type || '').toLowerCase();
+              const status = String(detail.status || '').toLowerCase();
+              const message = detail.message || '';
+
+              if (
+                eventType.includes('loadcomplete') ||
+                eventType.includes('load-complete') ||
+                eventType.includes('ready') ||
+                status === 'ready'
+              ) {
+                completeReady();
+                return;
+              }
+
+              if (
+                eventType.includes('loaderror') ||
+                eventType.includes('error') ||
+                status === 'error'
+              ) {
+                completeWithError(message || "Structure failed to load");
+              }
+          };
+
+          eventTargets.forEach(({ target, name }) => {
+            target.addEventListener(name, onViewerEvent as EventListener);
+            cleanupFns.push(() => target.removeEventListener(name, onViewerEvent as EventListener));
+          });
+
+          const loadCompleteEvent = viewer?.viewerInstance?.events?.loadComplete;
+          if (loadCompleteEvent && typeof loadCompleteEvent.subscribe === 'function') {
+            const subscription = loadCompleteEvent.subscribe((payload: any) => {
+              if (isStale() || finished) return;
+              const success = typeof payload === 'boolean'
+                ? payload
+                : payload?.success !== false;
+              if (success) {
+                completeReady();
+              } else {
+                completeWithError("Structure failed to load");
+              }
+            });
+            cleanupFns.push(() => {
+              if (subscription && typeof subscription.unsubscribe === 'function') {
+                subscription.unsubscribe();
+              }
+            });
+          }
+
+          // Fallback for event mismatch: if a canvas appears, treat viewer as loaded.
+          canvasProbeId = setInterval(() => {
+            if (isStale() || finished) return;
+            if (viewer.querySelector("canvas") || viewer.querySelector(".msp-plugin")) {
+              completeReady();
+            }
+          }, 400);
+
+      };
+
+      const waitForContainerAndBind = () => {
+          if (isStale() || finished) return;
+
+          const waitForInstanceAndBind = () => {
+            if (isStale() || finished) return;
+            const startedAt = Date.now();
+            const poll = () => {
+              if (isStale() || finished) return;
+              if (viewer.viewerInstance) {
+                bindEvents();
+                return;
+              }
+              if (Date.now() - startedAt > 8000) {
+                completeWithError("Viewer engine did not initialize");
+                return;
+              }
+              instanceProbeId = setTimeout(poll, 120);
+            };
+            poll();
+          };
+
+          if (hasContainerSize()) {
+            waitForInstanceAndBind();
+            return;
+          }
+
+          observer = new ResizeObserver(() => {
+            if (isStale() || finished) return;
+            if (hasContainerSize()) {
+              observer?.disconnect();
+              observer = undefined;
+              waitForInstanceAndBind();
+            }
+          });
+          observer.observe(container);
+
+          // Prevent indefinite wait when parent keeps the viewer collapsed/hidden.
+          containerTimeoutId = setTimeout(() => {
+            if (isStale() || finished) return;
+            completeWithError("Viewer container has zero size. Open the section and retry.");
+          }, 10000);
+      };
+
+      customElements.whenDefined('pdbe-molstar').then(() => {
+          if (isStale() || finished) return;
+          console.log(`[StructureViewer] <pdbe-molstar> defined`);
+
+          if (!(window as any).PDBeMolstarPlugin) {
+             console.warn("[StructureViewer] PDBeMolstarPlugin missing after script load");
+          }
+
+          waitForContainerAndBind();
+      });
+
       return () => {
-          if (cleanupFn) cleanupFn();
-          if (timeoutId) clearTimeout(timeoutId);
+          cleanupFns.forEach((fn) => fn());
+          cleanupFns = [];
+          if (observer) observer.disconnect();
+          if (hardTimeoutId) clearTimeout(hardTimeoutId);
+          if (containerTimeoutId) clearTimeout(containerTimeoutId);
+          if (canvasProbeId) clearInterval(canvasProbeId);
+          if (instanceProbeId) clearTimeout(instanceProbeId);
       };
-  }, [viewState, scriptsReady, viewerInstanceId]);
+  }, [viewState, scriptsReady, viewerInstanceId, cleanPdbId]);
 
   // Viewer Props
+  const alphaFoldSourceUrl = structureUrl || `https://alphafold.ebi.ac.uk/files/${cleanPdbId}-model_v4.cif`;
+  // Normalize AlphaFold loads to CIF to avoid BCIF parse/runtime crashes in this PDBe bundle.
+  const alphaFoldDataUrl = alphaFoldSourceUrl.replace(/\.bcif(\b|$)/i, '.cif$1');
+  const alphaFoldFormat = /\.pdb(\b|$)/i.test(alphaFoldDataUrl) ? 'pdb' : 'cif';
+
   const viewerProps = isAlphaFold 
     ? { 
-        'custom-data-url': structureUrl?.replace('.cif', '.bcif') || 
-                           `https://alphafold.ebi.ac.uk/files/${cleanPdbId}-model_v4.bcif`,
-        'custom-data-format': 'bcif',
+        'custom-data-url': alphaFoldDataUrl,
+        'custom-data-format': alphaFoldFormat,
         'loading-overlay': 'true',
         'hide-water': 'true',
         'visual-style': 'cartoon',
@@ -165,8 +335,15 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
     >
         {/* EXTERNAL SCRIPTS */}
         <link rel="stylesheet" type="text/css" href="/pdbe/pdbe-molstar-light.css" />
-        <Script src="/pdbe/pdbe-molstar-plugin.js" strategy="lazyOnload" />
-        <Script src="/pdbe/pdbe-molstar-component.js" strategy="lazyOnload" />
+        <Script
+            src="/pdbe/pdbe-molstar-component.js"
+            strategy="afterInteractive"
+            onLoad={() => setScriptLoadState({ component: true })}
+            onError={() => {
+              setLoadError("Failed to load viewer component script");
+              setViewState('error');
+            }}
+        />
 
         {/* LITE MODE UI */}
         {viewState === 'lite' && (
@@ -189,6 +366,7 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
                      <div className="flex gap-3">
                          <button 
                             onClick={() => {
+                                setLoadError(null);
                                 setViewerInstanceId(prev => prev + 1);
                                 setViewState('loading');
                             }}
@@ -256,11 +434,12 @@ function StructureViewerContent({ pdbId, source = 'PDB', structureUrl, sifts, un
         )}
 
         {/* ACTUAL VIEWER (Hidden until needed) */}
-        {(viewState === 'loading' || viewState === 'ready') && (
+        {/* Only mount when scripts are ready AND we are in loading/ready state */}
+        {scriptsReady && (viewState === 'loading' || viewState === 'ready') && (
             <pdbe-molstar
                 ref={viewerRef}
                 key={`${cleanPdbId}-${viewerInstanceId}`} // Force fresh mount on retry/new request
-                id="pdbe-molstar-widget"
+                id={`${widgetIdRef.current}-${viewerInstanceId}`}
                 {...viewerProps}
                 hide-controls="true"
             ></pdbe-molstar>

@@ -166,7 +166,9 @@ export async function POST(request: NextRequest) {
                           mapped = false;
                       }
                   } else if (s.source === 'AlphaFold') {
+                      chain = 'A';
                       mapped = true;
+                      pdbResidue = String(residueNumber);
                   }
 
                   return {
@@ -243,6 +245,18 @@ export async function POST(request: NextRequest) {
     // We must inject it here.
     let structureForBuilder = structureData ? {
         ...structureData,
+        sifts: (() => {
+          const matched = (enrichedAvailableStructures.length > 0 ? enrichedAvailableStructures : availableStructures)
+            .find((s: any) => s.id === structureData?.id && s.source === structureData?.source);
+          if (!matched) return null;
+          return {
+            mapped: !!matched.mapped && !!matched.pdbResidue,
+            pdbId: matched.id,
+            chain: matched.chain || 'A',
+            pdbResidue: matched.pdbResidue || '?',
+            source: matched.source === 'PDB' ? 'PDBe-KB' : 'AlphaFold sequence index'
+          };
+        })(),
         availableStructures: enrichedAvailableStructures.length > 0 ? enrichedAvailableStructures : availableStructures
     } : null;
 
@@ -278,7 +292,7 @@ export async function POST(request: NextRequest) {
     // ==========================================
     const response: HonestAPIResponse = {
       variant: {
-        hgvs: hgvs, // Use original input for display/header as requested
+        hgvs: normalizedInput,
         originalHgvs: hgvs,
         normalizedHgvs: normalizedInput,
         transcript: normalizedVariant.parsed.transcript,

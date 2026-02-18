@@ -2,7 +2,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { FileText, AlertTriangle, Hexagon, AlertCircle, Info, Beaker, HelpCircle, ExternalLink } from "lucide-react";
+import { FileText, AlertTriangle, Hexagon, AlertCircle, Info, Beaker, HelpCircle, ExternalLink, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { clsx } from "clsx";
 import StructureViewer from "./StructureViewer";
@@ -61,7 +61,10 @@ function StatusBadge({ status, label, tooltip }: { status: 'good' | 'warn' | 'no
 
 export default function ReportView({ data }: ReportViewProps) {
   const { variant, coverage, unknowns, curatedInfo } = data;
+  const canonicalHgvs = variant.normalizedHgvs || variant.hgvs;
   
+  const [copyStatus, setCopyStatus] = React.useState<'idle' | 'copied' | 'error'>('idle');
+
   // Phase-4: Multi-Structure Selection State
   const [selectedStructureId, setSelectedStructureId] = React.useState<string | null>(
      coverage.structure.id || null
@@ -123,6 +126,38 @@ export default function ReportView({ data }: ReportViewProps) {
       {/* HEADER ACTIONS (Export) */}
       <div className="flex justify-end gap-2 mb-4 print:hidden">
         <button 
+            onClick={async () => {
+                const md = generateMarkdown(data);
+                try {
+                    if (navigator?.clipboard?.writeText) {
+                        await navigator.clipboard.writeText(md);
+                    } else {
+                        const textarea = document.createElement('textarea');
+                        textarea.value = md;
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.focus();
+                        textarea.select();
+                        const ok = document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        if (!ok) throw new Error('copy failed');
+                    }
+                    setCopyStatus('copied');
+                } catch (error) {
+                    console.error("Copy markdown failed:", error);
+                    setCopyStatus('error');
+                } finally {
+                    window.setTimeout(() => setCopyStatus('idle'), 2000);
+                }
+            }}
+            className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-mono text-gray-300 transition-colors border border-white/10"
+            title={copyStatus === 'error' ? 'Copy failed' : 'Copy markdown to clipboard'}
+        >
+            <Copy className="w-3 h-3" />
+            {copyStatus === 'copied' ? 'COPIED' : copyStatus === 'error' ? 'FAILED' : 'COPY MD'}
+        </button>
+        <button 
             onClick={() => {
                 const md = generateMarkdown(data);
                 const blob = new Blob([md], { type: 'text/markdown' });
@@ -154,7 +189,7 @@ export default function ReportView({ data }: ReportViewProps) {
          <div>
              <div className="font-mono text-xs text-primary mb-2 tracking-widest uppercase">Evidence Briefing</div>
              <h2 className="text-4xl md:text-6xl font-heading font-bold text-white tracking-tight uppercase">
-                {variant.normalizedHgvs || variant.hgvs}
+                {canonicalHgvs.toUpperCase()}
              </h2>
              
              {/* Identity Metadata */}
@@ -170,9 +205,9 @@ export default function ReportView({ data }: ReportViewProps) {
                  )}
                  
                  {/* 2. Original Input (if different) */}
-                 {variant.hgvs !== variant.normalizedHgvs && (
+                 {variant.originalHgvs && variant.originalHgvs !== canonicalHgvs && (
                     <div className="font-mono text-xs text-gray-500">
-                        Submitted: <span className="text-gray-400 border-b border-gray-700 border-dashed">{variant.hgvs}</span>
+                        Submitted: <span className="text-gray-400 border-b border-gray-700 border-dashed">{variant.originalHgvs}</span>
                     </div>
                  )}
              </div>
@@ -330,7 +365,7 @@ export default function ReportView({ data }: ReportViewProps) {
             {(displayStructure.status === 'experimental' || displayStructure.source === 'AlphaFold') && displayStructure.id ? (
                <div className="flex flex-col gap-4 h-full">
                   <StructureViewer 
-                    key={displayStructure.id}
+                    key={`${displayStructure.source || 'PDB'}-${displayStructure.id}`}
                     pdbId={displayStructure.id}
                     source={displayStructure.source as 'PDB' | 'AlphaFold'}
                     structureUrl={foundStructure?.url} // Phase-4: Pass API-provided URL for AlphaFold

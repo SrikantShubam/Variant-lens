@@ -22,6 +22,17 @@ interface CacheEntry {
 const CACHE = new Map<string, CacheEntry>();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
+/** Structured coverage result with explicit reason codes */
+export interface CoverageResult {
+  covered: boolean;
+  reason: 'resolved' | 'gap' | 'unmapped' | 'partial';
+  percentage?: number;
+}
+
+// PDBe observed residues cache (5 min TTL to avoid rate limiting)
+const PDBE_CACHE_TTL = 5 * 60 * 1000;
+const pdbeCache = new Map<string, { data: any; timestamp: number }>();
+
 export class PDBResolver {
   private baseUrl = 'https://search.rcsb.org/rcsbsearch/v2/query';
   private downloadUrl = 'https://files.rcsb.org/download';
@@ -43,7 +54,7 @@ export class PDBResolver {
             value: uniprotId,
           },
         },
-        return_type: 'entry',
+        return_type: 'polymer_entity', // Changed from 'entry' to get specific chain
       };
 
       const response = await fetch(this.baseUrl, {
@@ -69,8 +80,9 @@ export class PDBResolver {
       // Get best structure (highest resolution, covering residue if specified)
       const structures = await Promise.all(
         data.result_set.slice(0, 5).map(async (entry: any) => {
-          const pdbId = entry.identifier;
-          return this.getStructureDetails(pdbId, uniprotId, residueNumber);
+          // Identifier is now like "1TUP_3" (PDB_Entity)
+          const [pdbId, entityId] = entry.identifier.split('_');
+          return this.getStructureDetails(pdbId, entityId, uniprotId, residueNumber);
         })
       );
 
@@ -94,31 +106,38 @@ export class PDBResolver {
   }
 
   private async getStructureDetails(
-    pdbId: string, 
+    pdbId: string,
+    entityId: string, 
     uniprotId: string,
     residueNumber?: number
   ): Promise<StructureData | null> {
     try {
-      // Get entry summary
+      // 1. Get Entry Summary (for resolution)
       const summaryUrl = `https://data.rcsb.org/rest/v1/core/entry/${pdbId}`;
       const summaryRes = await fetch(summaryUrl);
       
       if (!summaryRes.ok) return null;
       
       const summary = await summaryRes.json();
-
-      // Check resolution
       const resolution = summary.rcsb_entry_info?.resolution_combined?.[0];
+      
+      // Filter poor resolution
       if (resolution && resolution > 3.5) {
-        return null; // Too low resolution
+        return null;
       }
 
-      // Check coverage if residue specified
+      // 2. Check Coverage (residue-level, gap-safe)
       let isMapped = true;
+      let coverageNote = 'full sequence';
+      let coverageReason: CoverageResult['reason'] = 'resolved';
+
       if (residueNumber) {
-        const coverage = await this.checkCoverage(pdbId, uniprotId, residueNumber);
+        const coverage = await this.checkCoverage(pdbId, entityId, residueNumber);
         isMapped = coverage.covered;
-        // Phase-4: Do NOT filter out unmapped structures. Just mark them.
+        coverageReason = coverage.reason;
+        coverageNote = isMapped 
+          ? `target residue covered (${coverage.reason})` 
+          : `unmapped (${coverage.reason})`;
       }
 
       return {
@@ -126,7 +145,7 @@ export class PDBResolver {
         id: pdbId,
         url: `${this.downloadUrl}/${pdbId}.cif`,
         resolution,
-        coverage: residueNumber ? (isMapped ? 'target residue covered' : 'unmapped') : 'full sequence',
+        coverage: coverageNote,
         experimental: true,
         mapped: isMapped
       };
@@ -137,24 +156,203 @@ export class PDBResolver {
     }
   }
 
+  /**
+   * Residue-level, gap-safe coverage check.
+   * 
+   * 1. Maps UniProt residue → PDB residue via SIFTS aligned regions
+   * 2. Queries PDBe observed_residues_ratio to check if residue is resolved
+   * 3. Falls back to range-based with reason 'partial' if PDBe unavailable
+   *
+   * @param residueNumber - UniProt residue index (NOT PDB author numbering)
+   */
   private async checkCoverage(
     pdbId: string, 
-    uniprotId: string, 
+    entityId: string,
     residueNumber: number
-  ): Promise<{ covered: boolean; percentage?: number }> {
+  ): Promise<CoverageResult> {
     try {
-      const url = `https://data.rcsb.org/rest/v1/core/assembly/${pdbId}/1`;
+      // Step 1: Get SIFTS alignment to map UniProt → PDB residue
+      const url = `https://data.rcsb.org/rest/v1/core/polymer_entity/${pdbId}/${entityId}`;
       const response = await fetch(url);
       
-      if (!response.ok) return { covered: false };
+      if (!response.ok) return { covered: false, reason: 'unmapped' };
 
       const data = await response.json();
+      const alignments = data.rcsb_polymer_entity_align || [];
       
-      // Simplified coverage check - in production, parse entity mappings
-      return { covered: true, percentage: 95 };
+      // Look for SIFTS mapping to UniProt
+      const siftsMapping = alignments.find((a: any) => 
+        a.provenance_source === 'SIFTS' && 
+        a.reference_database_name === 'UniProt'
+      );
+
+      if (!siftsMapping || !siftsMapping.aligned_regions) {
+        return { covered: false, reason: 'unmapped' };
+      }
+
+      // Step 2: Map UniProt residue → PDB residue number
+      let pdbResidueNumber: number | null = null;
+      let chainId: string | null = null;
+
+      for (const region of siftsMapping.aligned_regions) {
+        const uniprotStart = region.ref_beg_seq_id;  // UniProt start
+        const pdbStart = region.query_beg_seq_id || region.ref_beg_seq_id; // PDB entity start
+        const length = region.length;
+        const uniprotEnd = uniprotStart + length - 1;
+
+        if (residueNumber >= uniprotStart && residueNumber <= uniprotEnd) {
+          // Calculate PDB residue from offset
+          const offset = residueNumber - uniprotStart;
+          pdbResidueNumber = pdbStart + offset;
+          break;
+        }
+      }
+
+      if (pdbResidueNumber === null) {
+        // Residue not in any aligned region
+        return { covered: false, reason: 'unmapped' };
+      }
+
+      // Get chain ID from entity instances
+      const instances = data.rcsb_polymer_entity_instance_container_identifiers;
+      if (instances && instances.length > 0) {
+        chainId = instances[0].auth_asym_id || instances[0].asym_id || null;
+      }
+
+      // Step 3: Check if residue is actually observed (not a gap)
+      const observedResult = await this.checkResidueObserved({
+        pdbId,
+        entityId,
+        pdbResidueNumber,
+        chainId,
+      });
+
+      return observedResult;
 
     } catch {
-      return { covered: false };
+      // On any error, fall back to honest 'partial'
+      return { covered: false, reason: 'partial' };
+    }
+  }
+
+  /**
+   * Check if a specific PDB residue is observed (has electron density).
+   * Uses PDBe observed_residues_ratio API.
+   * Falls back to 'partial' (range-implied) if API unavailable.
+   */
+  private async checkResidueObserved(mapping: {
+    pdbId: string;
+    entityId: string;
+    pdbResidueNumber: number;
+    chainId: string | null;
+  }): Promise<CoverageResult> {
+    const { pdbId, entityId, pdbResidueNumber, chainId } = mapping;
+
+    try {
+      // Check PDBe cache first
+      const cacheKey = `pdbe:${pdbId}`;
+      let observedData = pdbeCache.get(cacheKey);
+
+      if (!observedData || (Date.now() - observedData.timestamp > PDBE_CACHE_TTL)) {
+        // Fetch from PDBe
+        const pdbeUrl = `https://www.ebi.ac.uk/pdbe/api/pdb/entry/observed_residues_ratio/${pdbId.toLowerCase()}`;
+        const response = await fetch(pdbeUrl, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(5000), // 5s timeout
+        });
+
+        if (!response.ok) {
+          // PDBe unavailable - fall back to range-based with 'partial'
+          console.warn(`[Structure] PDBe observed residues API returned ${response.status} for ${pdbId}`);
+          return { covered: true, reason: 'partial' }; // Range says yes, but can't confirm
+        }
+
+        const rawData = await response.json();
+        pdbeCache.set(cacheKey, { data: rawData, timestamp: Date.now() });
+        observedData = { data: rawData, timestamp: Date.now() };
+      }
+
+      // Parse PDBe response: keyed by lowercase PDB ID
+      const pdbEntry = observedData.data[pdbId.toLowerCase()];
+      if (!pdbEntry) {
+        return { covered: true, reason: 'partial' };
+      }
+
+      // PDBe response shape varies by entry:
+      // - direct array of chain rows
+      // - object with `chains`
+      // - object with `molecules` where each molecule has `chains`
+      const normalizeChainRows = (entry: any): any[] => {
+        if (!entry) return [];
+        if (Array.isArray(entry)) return entry;
+        if (Array.isArray(entry.chains)) return entry.chains;
+        if (Array.isArray(entry.molecules)) {
+          const rows: any[] = [];
+          for (const mol of entry.molecules) {
+            if (Array.isArray(mol?.chains)) {
+              for (const chain of mol.chains) {
+                rows.push({
+                  ...chain,
+                  entity_id: chain?.entity_id ?? mol?.entity_id,
+                });
+              }
+            } else if (mol && typeof mol === 'object') {
+              rows.push(mol);
+            }
+          }
+          return rows;
+        }
+        if (typeof entry === 'object') return [entry];
+        return [];
+      };
+
+      const chainRows = normalizeChainRows(pdbEntry);
+      if (chainRows.length === 0) {
+        return { covered: true, reason: 'partial' };
+      }
+
+      // Look through chains/entities
+      for (const chain of chainRows) {
+        // Match by chain or entity
+        const chainMatch = chainId
+          ? (chain.chain_id === chainId || chain.auth_asym_id === chainId || chain.asym_id === chainId)
+          : true;
+        const entityMatch = chain.entity_id?.toString() === entityId;
+
+        if (chainMatch || entityMatch) {
+          // Check if our specific residue is in the observed ranges
+          const residueCount = Number(chain.residue_count ?? chain.total_residue_count ?? 0);
+          const observedCount = Number(chain.observed_count ?? chain.observed_residue_count ?? 0);
+          if (residueCount > 0 || observedCount > 0) {
+            // If residue ranges are present, use exact gap check.
+            const ranges = chain.observed_residue_ranges || chain.observed_ranges || chain.residue_ranges || [];
+            if (Array.isArray(ranges) && ranges.length > 0) {
+              for (const range of ranges) {
+                const start = Number(range?.start?.residue_number ?? range?.start ?? range?.[0]);
+                const end = Number(range?.end?.residue_number ?? range?.end ?? range?.[1]);
+                if (Number.isFinite(start) && Number.isFinite(end) && pdbResidueNumber >= start && pdbResidueNumber <= end) {
+                  return { covered: true, reason: 'resolved' };
+                }
+              }
+              // Residue not in any observed range = gap.
+              return { covered: false, reason: 'gap' };
+            }
+
+            // No residue-level ranges: use observed ratio heuristic.
+            const ratio = Number(chain.observed_ratio ?? (residueCount > 0 ? observedCount / residueCount : 0));
+            if (ratio >= 0.95) return { covered: true, reason: 'resolved' };
+            return { covered: true, reason: 'partial' };
+          }
+        }
+      }
+
+      // No matching chain found - range says covered but can't confirm
+      return { covered: true, reason: 'partial' };
+
+    } catch (error) {
+      // PDBe API error (rate limit, timeout, etc.) -> graceful fallback
+      console.warn(`[Structure] PDBe observed residues check failed for ${pdbId}:`, error);
+      return { covered: true, reason: 'partial' }; // Honest: range says yes, can't verify
     }
   }
 }
@@ -184,7 +382,8 @@ export class AlphaFoldResolver {
       const structure: StructureData = {
         source: 'AlphaFold',
         id: entry.entryId,
-        url: entry.bcifUrl || entry.cifUrl || entry.pdbUrl, // Phase-4 Optimization: Prefer BCIF > CIF > PDB
+        // Prefer CIF for compatibility with the bundled PDBe viewer.
+        url: entry.cifUrl || entry.pdbUrl || entry.bcifUrl,
         plddt: entry.plddt,
         paeUrl: entry.paeDocUrl, // Use API-provided PAE URL (not hardcoded v4)
         coverage: `${entry.coverage?.[0]?.seqStart || 1}-${entry.coverage?.[0]?.seqEnd || 'full'}`,
@@ -303,3 +502,4 @@ function setCache(key: string, data: StructureData): void {
 export function clearStructureCache(): void {
   CACHE.clear();
 }
+

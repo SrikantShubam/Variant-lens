@@ -54,6 +54,17 @@ const COMMON_GENES: Record<string, string> = {
   'ERBB2': 'P04626',
 };
 
+import { fetchWithRetry, FetchResult, FetchFailure, ServiceUnavailableError } from './fetch-utils';
+
+// ... (existing constants)
+
+export class UniProtUnavailableError extends Error {
+    constructor(public failure: FetchFailure) {
+        super(`UniProt Unavailable: ${failure.reason}`);
+        this.name = 'UniProtUnavailableError';
+    }
+}
+
 async function resolveUniprotId(gene: string): Promise<string | null> {
   const upper = gene.toUpperCase();
   
@@ -64,14 +75,22 @@ async function resolveUniprotId(gene: string): Promise<string | null> {
   
   // Dynamic lookup
   try {
-    const response = await fetch(
-      `${UNIPROT_API}/search?query=gene:${gene}+AND+reviewed:true&format=json&limit=1`
+    const result = await fetchWithRetry<any>(
+      `${UNIPROT_API}/search?query=gene:${gene}+AND+reviewed:true&format=json&limit=1`,
+      { circuitBreakerKey: 'uniprot', timeoutMs: 6000 }
     );
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data.results?.[0]?.primaryAccession || null;
-  } catch {
-    return null;
+    
+    if (result && 'unavailable' in result) {
+        throw new UniProtUnavailableError(result);
+    }
+    
+    if (!result || !result.results || result.results.length === 0) return null;
+    
+    return result.results[0].primaryAccession || null;
+  } catch (error) {
+    if (error instanceof UniProtUnavailableError) throw error;
+    // Other errors (parsing etc) are treated as "not found" or swallowed for dynamic lookup
+    return null; 
   }
 }
 
@@ -79,6 +98,7 @@ async function resolveUniprotId(gene: string): Promise<string | null> {
 // FETCH UNIPROT DATA
 // ==========================================
 
+// ... (Uniprot interfaces)
 interface UniprotFeature {
   type: string;
   location: {
@@ -108,13 +128,22 @@ async function fetchUniprotData(uniprotId: string): Promise<UniprotData | null> 
   }
   
   try {
-    const response = await fetch(`${UNIPROT_API}/${uniprotId}.json`);
-    if (!response.ok) return null;
+    const result = await fetchWithRetry<UniprotData>(`${UNIPROT_API}/${uniprotId}.json`, {
+        circuitBreakerKey: 'uniprot',
+        timeoutMs: 6000
+    });
     
-    const data = await response.json();
-    CACHE.set(cacheKey, { data, timestamp: Date.now() });
-    return data;
-  } catch {
+    if (result && 'unavailable' in result) {
+        throw new UniProtUnavailableError(result);
+    }
+    
+    if (!result) return null; // 404
+    
+    CACHE.set(cacheKey, { data: result, timestamp: Date.now() });
+    return result;
+  } catch (error) {
+    if (error instanceof UniProtUnavailableError) throw error;
+    console.warn(`[UniProt] Failed to fetch ${uniprotId}:`, error);
     return null;
   }
 }
@@ -288,11 +317,16 @@ export function generateUnknowns(
   coverage: EvidenceCoverage
 ): ExplicitUnknowns {
   const items: string[] = [];
+  const hasMappedStructure = !!coverage.structure.sifts?.mapped ||
+    !!coverage.structure.availableStructures?.some((s) => s.mapped && !!s.pdbResidue);
   
   // Structure unknowns
   if (coverage.structure.status === 'none') {
     items.push(UNKNOWN_MESSAGES.NO_STRUCTURE);
-  } else if (coverage.structure.status === 'experimental' || coverage.structure.status === 'predicted') {
+  } else if (
+    coverage.structure.status === 'experimental' &&
+    !hasMappedStructure
+  ) {
     items.push(UNKNOWN_MESSAGES.MAPPING_NOT_COMPUTED);
   }
   
@@ -328,6 +362,10 @@ export function generateUnknowns(
 // BUILD EVIDENCE COVERAGE
 // ==========================================
 
+// ==========================================
+// BUILD EVIDENCE COVERAGE
+// ==========================================
+
 export async function buildEvidenceCoverage(
   curatedInfo: CuratedProteinInfo,
   structureData: { 
@@ -341,16 +379,26 @@ export async function buildEvidenceCoverage(
       chain: string;
       pdbResidue: string;
       source: string;
+      availableStructures?: Array<{
+        id: string;
+        source: string;
+        resolution?: number;
+        chain: string;
+        mapped: boolean;
+        paeUrl?: string; // Phase-4
+      }>;
     } | null;
     availableStructures?: Array<{
       id: string;
       source: string;
+      url?: string;
       resolution?: number;
       chain: string;
       mapped: boolean;
+      pdbResidue?: string;
       paeUrl?: string; // Phase-4
     }>;
-  } | null,
+  } | { unavailable: true; reason: string } | null,
   clinvarData: { 
     significance: string; 
     reviewStatus: string;
@@ -358,7 +406,7 @@ export async function buildEvidenceCoverage(
     clinvarId: string;
     url: string;
     conditions: string[];
-  } | null,
+  } | { unavailable: true; reason: string } | null,
   literatureData: { 
     count: number; 
     query: string;
@@ -368,51 +416,86 @@ export async function buildEvidenceCoverage(
       source: string;
       pubDate: string;
     }>;
-  } | null
+  } | { unavailable: true; reason: string } | null
 ): Promise<EvidenceCoverage> {
+  // Structure
+  let structureCoverage: EvidenceCoverage['structure'];
+  if (structureData && 'unavailable' in structureData) {
+      structureCoverage = { 
+          status: 'unavailable', 
+          reason: structureData.reason 
+      };
+  } else if (structureData) {
+      const hasMappedStructure = !!structureData.sifts?.mapped ||
+        !!structureData.availableStructures?.some((s) => s.mapped && !!s.pdbResidue);
+      structureCoverage = {
+          status: structureData.source === 'PDB' ? 'experimental' : 'predicted',
+          source: structureData.source,
+          id: structureData.id,
+          resolution: structureData.resolution,
+          paeUrl: structureData.paeUrl,
+          note: structureData.source === 'PDB' && !hasMappedStructure
+            ? UNKNOWN_MESSAGES.MAPPING_NOT_COMPUTED
+            : undefined,
+          sifts: structureData.sifts || undefined,
+          availableStructures: structureData.availableStructures,
+      };
+  } else {
+      structureCoverage = { status: 'none' };
+  }
+
+  // Clinical
+  let clinicalCoverage: EvidenceCoverage['clinical'];
+  if (clinvarData && 'unavailable' in clinvarData) {
+      clinicalCoverage = { 
+          status: 'unavailable', 
+          reason: clinvarData.reason 
+      };
+  } else if (clinvarData) {
+      clinicalCoverage = {
+          status: mapClinicalSignificance(clinvarData.significance),
+          source: 'ClinVar',
+          significance: clinvarData.significance,
+          reviewStatus: clinvarData.reviewStatus,
+          stars: clinvarData.stars,
+          clinvarId: clinvarData.clinvarId,
+          url: clinvarData.url,
+          conditions: clinvarData.conditions,
+      };
+  } else {
+      clinicalCoverage = { status: 'none' };
+  }
+
+  // Literature
+  let literatureCoverage: EvidenceCoverage['literature'];
+  if (literatureData && 'unavailable' in literatureData) {
+      literatureCoverage = {
+          variantSpecificCount: 0,
+          unavailable: true,
+          reason: literatureData.reason
+      };
+  } else {
+      literatureCoverage = {
+          variantSpecificCount: literatureData?.count || 0,
+          query: literatureData?.query,
+          papers: literatureData?.papers.map(p => ({
+            title: p.title,
+            url: p.url,
+            source: p.source,
+            year: p.pubDate.split(' ')[0] 
+          })),
+          note: (literatureData?.count || 0) === 0 ? UNKNOWN_MESSAGES.NO_LITERATURE : undefined,
+      };
+  }
+
   return {
-    structure: structureData ? {
-      status: structureData.source === 'PDB' ? 'experimental' : 'predicted',
-      source: structureData.source,
-      id: structureData.id,
-      resolution: structureData.resolution,
-      paeUrl: structureData.paeUrl, // Phase-4
-      note: structureData.sifts?.mapped ? undefined : UNKNOWN_MESSAGES.MAPPING_NOT_COMPUTED,
-      sifts: structureData.sifts || undefined,
-      availableStructures: structureData.availableStructures,
-    } : {
-      status: 'none',
-    },
-    
-    clinical: clinvarData ? {
-      status: mapClinicalSignificance(clinvarData.significance),
-      source: 'ClinVar',
-      significance: clinvarData.significance,
-      reviewStatus: clinvarData.reviewStatus,
-      stars: clinvarData.stars,
-      clinvarId: clinvarData.clinvarId,
-      url: clinvarData.url,
-      conditions: clinvarData.conditions,
-    } : {
-      status: 'none',
-    },
-    
+    structure: structureCoverage,
+    clinical: clinicalCoverage,
     domain: {
       inAnnotatedDomain: !!curatedInfo.variantInDomain,
       domainName: curatedInfo.variantInDomain || undefined,
     },
-    
-    literature: {
-      variantSpecificCount: literatureData?.count || 0,
-      query: literatureData?.query,
-      papers: literatureData?.papers.map(p => ({
-        title: p.title,
-        url: p.url,
-        source: p.source,
-        year: p.pubDate.split(' ')[0] // Extract year roughly
-      })),
-      note: (literatureData?.count || 0) === 0 ? UNKNOWN_MESSAGES.NO_LITERATURE : undefined,
-    },
+    literature: literatureCoverage,
   };
 }
 
