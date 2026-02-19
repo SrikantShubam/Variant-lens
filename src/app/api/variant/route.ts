@@ -227,7 +227,9 @@ export async function POST(request: NextRequest) {
          }
          pubmedData = pubmedResult;
     } else if (pubmedResult && 'unavailable' in pubmedResult) {
-         console.log(`[HonestAPI] PubMed unavailable: ${pubmedResult.reason}`);
+         const reason =
+           'reason' in pubmedResult ? String(pubmedResult.reason) : 'unknown';
+         console.log(`[HonestAPI] PubMed unavailable: ${reason}`);
     }
 
     // ==========================================
