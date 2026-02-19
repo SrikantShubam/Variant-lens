@@ -7,6 +7,9 @@
 
 import { describe, it, expect, beforeAll } from '@jest/globals';
 import { ensureMocks } from './helpers/mock-global';
+import { parseHGVS } from '../variant';
+import { uniprotCache } from '../cache';
+import { RateLimiter } from '../rate-limit';
 
 // For smoke tests, we use mocked APIs to avoid real calls
 // In a real environment, you'd conditionally use real APIs
@@ -16,9 +19,6 @@ beforeAll(() => {
 
 describe('Smoke Test', () => {
   it('variant parsing works correctly', () => {
-    // Import inline to ensure mocks are set up
-    const { parseHGVS } = require('../variant');
-    
     const result = parseHGVS('TP53:p.Arg175His');
     
     // parseHGVS returns single-letter codes and includes type
@@ -32,8 +32,6 @@ describe('Smoke Test', () => {
   });
 
   it('cache operations work', async () => {
-    const { uniprotCache } = require('../cache');
-    
     // Test cache set/get
     await uniprotCache.set('TEST_KEY', { data: 'test' });
     const result = await uniprotCache.get('TEST_KEY');
@@ -42,8 +40,6 @@ describe('Smoke Test', () => {
   });
 
   it('rate limiter functions correctly', async () => {
-    const { RateLimiter } = require('../rate-limit');
-    
     const limiter = new RateLimiter({ windowMs: 1000, maxRequests: 5 });
     
     // Should allow first 5 requests
