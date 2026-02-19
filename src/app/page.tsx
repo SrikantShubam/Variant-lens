@@ -66,7 +66,7 @@ export default function Home() {
        {/* Animated Mesh Gradient Background */}
        <div className="mesh-bg" />
        
-       <div className="relative z-10 p-4 md:p-8">
+       <div className="relative z-10 p-3 sm:p-4 md:p-8">
          <Hero />
 
          <SearchInput onSearch={handleSearch} loading={loading} />

@@ -27,7 +27,7 @@ function Tooltip({ children, text }: { children: React.ReactNode; text: string }
   return (
     <div className="relative group inline-flex items-center">
       {children}
-      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-xs text-gray-300 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 border border-white/10 max-w-xs text-wrap">
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-xs text-gray-300 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-normal z-50 border border-white/10 max-w-[16rem] sm:max-w-xs text-wrap">
         {text}
       </div>
     </div>
@@ -47,7 +47,7 @@ function StatusBadge({ status, label, tooltip }: { status: 'good' | 'warn' | 'no
         status === 'warn' && "bg-yellow-400",
         status === 'none' && "bg-gray-600"
       )} />
-      <span className="text-sm text-gray-300">{label}</span>
+      <span className="text-sm text-gray-300 break-words leading-snug">{label}</span>
       {tooltip && <HelpCircle className="w-3 h-3 text-gray-500" />}
     </div>
   );
@@ -114,17 +114,17 @@ export default function ReportView({ data }: ReportViewProps) {
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="report-printable w-full max-w-7xl mx-auto pb-32 px-4 md:px-8"
+      className="report-printable w-full max-w-7xl mx-auto pb-24 md:pb-32 px-3 sm:px-4 md:px-8"
     >
       {/* RESEARCH USE ONLY - Visible without scrolling */}
       <div className="mb-4 text-center">
-        <span className="text-xs font-mono text-yellow-500 bg-yellow-500/10 px-3 py-1 rounded-full border border-yellow-500/30">
+        <span className="inline-block text-[10px] sm:text-xs font-mono text-yellow-500 bg-yellow-500/10 px-2 sm:px-3 py-1 rounded-full border border-yellow-500/30 break-words">
           ⚠️ RESEARCH USE ONLY — NOT FOR CLINICAL DECISIONS
         </span>
       </div>
 
       {/* HEADER ACTIONS (Export) */}
-      <div className="flex justify-end gap-2 mb-4 print:hidden">
+      <div className="flex flex-wrap justify-start md:justify-end gap-2 mb-4 print:hidden">
         <button 
             onClick={async () => {
                 const md = generateMarkdown(data);
@@ -151,7 +151,7 @@ export default function ReportView({ data }: ReportViewProps) {
                     window.setTimeout(() => setCopyStatus('idle'), 2000);
                 }
             }}
-            className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-mono text-gray-300 transition-colors border border-white/10"
+            className="flex-1 sm:flex-none min-w-[7.5rem] flex items-center justify-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-[11px] sm:text-xs font-mono text-gray-300 transition-colors border border-white/10"
             title={copyStatus === 'error' ? 'Copy failed' : 'Copy markdown to clipboard'}
         >
             <Copy className="w-3 h-3" />
@@ -170,14 +170,14 @@ export default function ReportView({ data }: ReportViewProps) {
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
             }}
-            className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-mono text-gray-300 transition-colors border border-white/10"
+            className="flex-1 sm:flex-none min-w-[7.5rem] flex items-center justify-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-[11px] sm:text-xs font-mono text-gray-300 transition-colors border border-white/10"
         >
             <FileText className="w-3 h-3" />
             MARKDOWN
         </button>
         <button 
             onClick={() => window.print()}
-            className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-xs font-mono text-gray-300 transition-colors border border-white/10"
+            className="flex-1 sm:flex-none min-w-[6rem] flex items-center justify-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-[11px] sm:text-xs font-mono text-gray-300 transition-colors border border-white/10"
         >
             <ExternalLink className="w-3 h-3" />
             PDF
@@ -185,10 +185,10 @@ export default function ReportView({ data }: ReportViewProps) {
       </div>
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-end mb-8 border-b border-white/10 pb-6">
+      <div className="flex flex-col md:flex-row justify-between md:items-end mb-8 border-b border-white/10 pb-6 gap-4">
          <div>
              <div className="font-mono text-xs text-primary mb-2 tracking-widest uppercase">Evidence Briefing</div>
-             <h2 className="text-4xl md:text-6xl font-heading font-bold text-white tracking-tight uppercase">
+             <h2 className="text-2xl sm:text-4xl md:text-6xl font-heading font-bold text-white tracking-tight uppercase break-words leading-tight">
                 {canonicalHgvs.toUpperCase()}
              </h2>
              
@@ -212,7 +212,7 @@ export default function ReportView({ data }: ReportViewProps) {
                  )}
              </div>
          </div>
-         <div className="flex items-center gap-4 mt-4 md:mt-0 font-mono text-xs text-gray-400">
+         <div className="flex flex-wrap items-center gap-3 md:gap-4 mt-0 font-mono text-xs text-gray-400">
              <span>{variant.gene}</span>
              <span>|</span>
              <span>{new Date().toLocaleDateString()}</span>
@@ -225,7 +225,7 @@ export default function ReportView({ data }: ReportViewProps) {
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           className={clsx(
-            "mb-8 p-6 rounded-xl border",
+            "mb-8 p-4 sm:p-6 rounded-xl border",
             unknowns.severity === 'critical' && "bg-red-500/10 border-red-500/30",
             unknowns.severity === 'moderate' && "bg-yellow-500/10 border-yellow-500/30",
             unknowns.severity === 'minor' && "bg-blue-500/10 border-blue-500/30"
@@ -245,8 +245,8 @@ export default function ReportView({ data }: ReportViewProps) {
           <ul className="space-y-2">
             {unknowns.items.map((item, i) => (
               <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                <span className="text-gray-500">•</span>
-                {item}
+                <span className="text-gray-500">-</span>
+                <span className="break-words">{item}</span>
               </li>
             ))}
           </ul>
@@ -254,14 +254,14 @@ export default function ReportView({ data }: ReportViewProps) {
       )}
 
       {/* BENTO GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-[minmax(160px,auto)]">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 auto-rows-[minmax(160px,auto)]">
         
         {/* 1. Evidence Coverage Panel */}
-        <div className="md:col-span-2 glass-panel p-6 rounded-2xl">
+        <div className="md:col-span-2 glass-panel p-4 sm:p-6 rounded-2xl">
           <h4 className="font-mono text-xs text-muted uppercase tracking-widest mb-4">
             Evidence Coverage
           </h4>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <StatusBadge 
               status={coverage.structure.status === 'experimental' ? 'good' : coverage.structure.status === 'predicted' ? 'warn' : 'none'}
               label={
@@ -285,10 +285,10 @@ export default function ReportView({ data }: ReportViewProps) {
                 href={coverage.clinical.url} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 hover:bg-white/5 rounded-lg p-1 -m-1 transition-colors"
+                className="flex items-start gap-2 hover:bg-white/5 rounded-lg p-1 -m-1 transition-colors"
               >
                 <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
-                <span className="text-sm text-gray-300">
+                <span className="text-sm text-gray-300 break-words leading-snug">
                   {coverage.clinical.significance || coverage.clinical.status}
                   {coverage.clinical.stars !== undefined && (
                     <span className="text-yellow-400 ml-1">{'★'.repeat(coverage.clinical.stars)}{'☆'.repeat(4 - coverage.clinical.stars)}</span>
@@ -316,11 +316,11 @@ export default function ReportView({ data }: ReportViewProps) {
                 href={`https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(coverage.literature.query || '')}`}
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 hover:bg-white/5 rounded-lg p-1 -m-1 transition-colors"
+                className="flex items-start gap-2 hover:bg-white/5 rounded-lg p-1 -m-1 transition-colors"
                 title={`Search Query: ${coverage.literature.query}\n\nCount reflects PubMed Title/Abstract matches, not curated variant studies.`}
               >
                 <div className="w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0" />
-                <span className="text-sm text-gray-300">
+                <span className="text-sm text-gray-300 break-words leading-snug">
                   {coverage.literature.variantSpecificCount} papers mention this variant
                 </span>
                 <ExternalLink className="w-3 h-3 text-gray-500" />
@@ -341,7 +341,7 @@ export default function ReportView({ data }: ReportViewProps) {
         </div>
 
         {/* 2. Structure Card */}
-        <div className="md:col-span-2 md:row-span-2 glass-panel p-1 rounded-2xl relative group flex flex-col">
+        <div className="md:col-span-2 md:row-span-2 glass-panel p-1 rounded-2xl relative group flex flex-col min-w-0">
           {/* Structure Selector Dropdown */}
           {availableStructures.length > 0 && (
              <div className="px-2 py-2 border-b border-white/10">
@@ -353,7 +353,7 @@ export default function ReportView({ data }: ReportViewProps) {
                 >
                    {availableStructures.map(s => (
                       <option key={s.id} value={s.id} className="bg-gray-900">
-                         {s.source} {s.id} {s.resolution ? `(${s.resolution}Å)` : ''} {s.mapped ? '✓' : '(unmapped)'}
+                         {s.source} {s.id} {s.resolution ? `(${s.resolution})` : ''} {s.mapped ? '(mapped)' : '(unmapped)'}
                       </option>
                    ))}
                 </select>
@@ -387,7 +387,7 @@ export default function ReportView({ data }: ReportViewProps) {
              <>
                <div className="absolute inset-0 bg-gradient-to-br from-surface to-black z-0" />
                
-               <div className="relative z-10 h-full flex flex-col justify-between p-8">
+               <div className="relative z-10 h-full flex flex-col justify-between p-5 sm:p-8">
                    {coverage.structure.status !== 'none' ? (
                      <>
                        <div className="flex justify-between items-start">
@@ -425,46 +425,46 @@ export default function ReportView({ data }: ReportViewProps) {
         </div>
 
         {/* 3. Curated Context */}
-        <div className="md:col-span-2 glass-panel p-6 rounded-2xl">
+        <div className="md:col-span-2 glass-panel p-4 sm:p-6 rounded-2xl">
           <div className="flex items-center gap-2 mb-4">
             <Beaker className="w-4 h-4 text-primary" />
             <h4 className="font-mono text-xs text-muted uppercase tracking-widest">Curated Context (UniProt)</h4>
           </div>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
+            <div className="flex items-start justify-between gap-3">
               <span className="text-gray-500">Protein</span>
-              <span className="text-white">{curatedInfo.proteinName}</span>
+              <span className="text-white text-right break-words">{curatedInfo.proteinName}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex items-start justify-between gap-3">
               <span className="text-gray-500">Length</span>
-              <span className="text-white">{curatedInfo.proteinLength} aa</span>
+              <span className="text-white text-right">{curatedInfo.proteinLength} aa</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex items-start justify-between gap-3">
               <span className="text-gray-500">Variant Position</span>
-              <span className="text-white">{curatedInfo.variantPosition}</span>
+              <span className="text-white text-right">{curatedInfo.variantPosition}</span>
             </div>
             {curatedInfo.variantInDomain && (
-              <div className="flex justify-between">
+              <div className="flex items-start justify-between gap-3">
                 <span className="text-gray-500">Annotated Domain (UniProt)</span>
-                <span className="text-primary">{curatedInfo.variantInDomain}</span>
+                <span className="text-primary text-right break-words">{curatedInfo.variantInDomain}</span>
               </div>
             )}
-            <div className="flex justify-between pt-2 border-t border-white/5 mt-2">
+            <div className="flex items-start justify-between gap-3 pt-2 border-t border-white/5 mt-2">
               <span className="text-gray-600 text-xs">Isoform</span>
-              <span className="text-gray-500 text-xs">Canonical UniProt isoform used</span>
+              <span className="text-gray-500 text-xs text-right">Canonical UniProt isoform used</span>
             </div>
           </div>
         </div>
 
         {/* 4. Domains List (Moved up since Summary Removed) */}
-        <div className="md:col-span-2 glass-panel p-6 rounded-2xl">
+        <div className="md:col-span-2 glass-panel p-4 sm:p-6 rounded-2xl">
           <h4 className="font-mono text-xs text-muted uppercase tracking-widest mb-4">
             Annotated Domains (UniProt)
           </h4>
           {curatedInfo.domains && curatedInfo.domains.length > 0 ? (
             <div className="space-y-2">
               {curatedInfo.domains.slice(0, 5).map((domain: any, i: number) => (
-                <div key={i} className="text-xs p-2 bg-surface-light/20 rounded">
+                <div key={i} className="text-xs p-2 bg-surface-light/20 rounded break-words">
                   <span className="text-white">{domain.name}</span>
                   <span className="text-gray-500 ml-2">({domain.start}-{domain.end})</span>
                 </div>
@@ -478,7 +478,7 @@ export default function ReportView({ data }: ReportViewProps) {
       </div>
 
       {/* RESEARCH DISCLAIMER (always shown, prominent) */}
-      <div className="mt-8 p-6 rounded-xl bg-surface border border-yellow-500/20">
+      <div className="mt-8 p-4 sm:p-6 rounded-xl bg-surface border border-yellow-500/20">
         <div className="flex items-start gap-3">
           <Info className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-gray-400 whitespace-pre-line">

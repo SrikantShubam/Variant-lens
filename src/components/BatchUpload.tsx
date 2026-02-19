@@ -157,8 +157,8 @@ export default function BatchUpload() {
   };
 
   return (
-    <div className="bg-surface-light/50 backdrop-blur rounded-xl border border-white/10 p-6">
-       <div className="flex items-center justify-between mb-4">
+    <div className="bg-surface-light/50 backdrop-blur rounded-xl border border-white/10 p-4 sm:p-6">
+       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
          <div className="flex items-center gap-2">
             <div className="p-2 bg-primary/20 rounded-lg">
                 <Upload className="w-5 h-5 text-primary" />
@@ -172,7 +172,7 @@ export default function BatchUpload() {
 
        {/* Drop/Select Area */}
        {!file && !processing ? (
-         <div className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center hover:bg-white/5 transition-colors cursor-pointer group relative">
+         <div className="border-2 border-dashed border-white/10 rounded-xl p-5 sm:p-8 text-center hover:bg-white/5 transition-colors cursor-pointer group relative">
             <input 
                type="file" 
                accept=".csv,.txt"
@@ -187,10 +187,10 @@ export default function BatchUpload() {
        ) : (
          <div className="space-y-4">
              {/* File Info */}
-             <div className="flex items-center justify-between bg-black/20 p-3 rounded-lg border border-white/5">
-                <div className="flex items-center gap-2 text-sm text-white">
+             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-black/20 p-3 rounded-lg border border-white/5">
+                <div className="flex items-center gap-2 text-sm text-white min-w-0">
                     <FileText className="w-4 h-4 text-gray-400" />
-                    <span>{file?.name}</span>
+                    <span className="truncate">{file?.name}</span>
                 </div>
                 {!processing && (
                     <button 
@@ -226,7 +226,7 @@ export default function BatchUpload() {
              ) : (
                  <div className="space-y-4">
                     {/* Summary */}
-                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center text-xs">
                         <div className="bg-green-900/20 border border-green-500/20 p-2 rounded text-green-400">
                             {results.filter(r => r.status === 'success').length} Success
                         </div>
@@ -263,6 +263,7 @@ export default function BatchUpload() {
                     {r.status === 'success' && <Check className="w-3 h-3 text-green-500" />}
                     {r.status === 'error' && <AlertCircle className="w-3 h-3 text-red-500" />}
                     <span className={clsx(
+                        "break-all",
                         r.status === 'success' ? "text-gray-300" : 
                         r.status === 'error' ? "text-red-400" : "text-gray-500"
                     )}>

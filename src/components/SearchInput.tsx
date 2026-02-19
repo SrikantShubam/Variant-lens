@@ -45,13 +45,13 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-6 relative z-20">
+    <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 relative z-20">
       
       {/* Input Container */}
       <form onSubmit={handleSubmit} className="relative group">
         
         {/* Label / Status */}
-        <div className="flex justify-between text-xs font-mono text-gray-500 mb-2 uppercase tracking-widest">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] sm:text-xs font-mono text-gray-500 mb-2 uppercase tracking-widest">
             <span>Query Interface</span>
             <span className={clsx(
                 "transition-colors duration-300",
@@ -66,7 +66,7 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
             "relative flex items-center bg-surface border rounded-lg transition-all duration-300",
             isFocused ? "border-primary/50 glow-border-focus" : "border-white/10"
         )}>
-            <div className="pl-6 text-muted">
+            <div className="pl-4 sm:pl-6 text-muted">
                {loading ? <Loader2 className="animate-spin w-5 h-5 text-primary"/> : <Terminal className="w-5 h-5" />}
             </div>
             
@@ -76,8 +76,8 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
                onChange={handleChange}
                onFocus={() => setIsFocused(true)}
                onBlur={() => setIsFocused(false)}
-               placeholder="ENTER VARIANT (e.g. BRCA1:p.Cys61Gly)"
-               className="w-full bg-transparent p-6 text-lg md:text-xl font-mono text-white placeholder-gray-700 focus:outline-none uppercase tracking-wider"
+               placeholder="ENTER VARIANT (e.g. TP53:p.R175H)"
+               className="w-full bg-transparent py-4 pr-3 pl-3 sm:p-6 text-base sm:text-lg md:text-xl font-mono text-white placeholder-gray-700 focus:outline-none uppercase tracking-normal sm:tracking-wider"
                disabled={loading}
             />
 
@@ -91,7 +91,7 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
                         type="submit"
                         disabled={!isValid || loading}
                         className={clsx(
-                            "mr-6 p-2 rounded-full transition-all duration-300",
+                            "mr-4 sm:mr-6 p-2 rounded-full transition-all duration-300 flex-shrink-0",
                             isValid ? "bg-primary text-black hover:bg-white" : "bg-gray-800 text-gray-500"
                         )}
                     >
@@ -111,7 +111,7 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
 
       {/* Try Examples */}
       <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted">Try examples:</span>
+        <span className="text-muted w-full sm:w-auto">Try examples:</span>
         {examples.map((example) => (
           <button
             key={example}
@@ -132,11 +132,11 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="mt-8 p-6 rounded-xl glass border border-primary/30 text-center"
+            className="mt-6 sm:mt-8 p-4 sm:p-6 rounded-xl glass border border-primary/30 text-center"
           >
             <div className="flex items-center justify-center gap-3 mb-3">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              <span className="text-lg font-medium text-white">Analyzing Variant...</span>
+              <span className="text-base sm:text-lg font-medium text-white">Analyzing Variant...</span>
             </div>
             <p className="text-sm text-muted">
               Resolving structure from PDB/AlphaFold and compiling evidence briefing.
