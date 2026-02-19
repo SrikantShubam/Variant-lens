@@ -37,3 +37,16 @@ ts-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# docs
+/docs
+
+# local artifacts
+/.playwright-cli
+/data
+/dist
+/evidence
+/output
+/tmp
+scan_output.txt
+test_output.txt
