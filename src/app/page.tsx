@@ -26,10 +26,26 @@ export default function Home() {
         body: JSON.stringify({ hgvs }),
       });
 
-      const json = await res.json();
+      const responseText = await res.text();
+      let json: any = null;
+      if (responseText) {
+        try {
+          json = JSON.parse(responseText);
+        } catch {
+          throw new Error(
+            res.ok
+              ? 'Server returned a non-JSON response.'
+              : `Request failed (${res.status}): ${responseText.slice(0, 200)}`
+          );
+        }
+      }
 
       if (!res.ok) {
-        throw new Error(json.error || json.message || 'Failed to analyze variant');
+        throw new Error(json?.error || json?.message || `Failed to analyze variant (${res.status})`);
+      }
+
+      if (!json) {
+        throw new Error('Server returned an empty response.');
       }
 
       setData(json);
