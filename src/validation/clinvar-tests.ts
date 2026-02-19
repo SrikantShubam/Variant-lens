@@ -7,6 +7,10 @@
 
 import { getClinVarData, ClinVarResult } from '../lib/clinvar-client';
 
+function isClinVarResult(result: Awaited<ReturnType<typeof getClinVarData>>): result is ClinVarResult {
+  return !!result && !('unavailable' in result);
+}
+
 // ==========================================
 // TEST CLASS 1: Known Pathogenic Variant
 // ==========================================
@@ -16,16 +20,20 @@ describe('ClinVar: Pathogenic Variants', () => {
     const result = await getClinVarData('BRAF', 'p.V600E');
     
     expect(result).not.toBeNull();
-    expect(result?.clinicalSignificance).toBe('Pathogenic');
-    expect(result?.reviewStatus).toBeDefined();
-    expect(result?.clinvarId).toBeDefined();
+    expect(isClinVarResult(result)).toBe(true);
+    if (!isClinVarResult(result)) return;
+    expect(result.clinicalSignificance).toBe('Pathogenic');
+    expect(result.reviewStatus).toBeDefined();
+    expect(result.clinvarId).toBeDefined();
   });
 
   test('TP53 R175H should show Pathogenic', async () => {
     const result = await getClinVarData('TP53', 'p.R175H');
     
     expect(result).not.toBeNull();
-    expect(result?.clinicalSignificance).toBe('Pathogenic');
+    expect(isClinVarResult(result)).toBe(true);
+    if (!isClinVarResult(result)) return;
+    expect(result.clinicalSignificance).toBe('Pathogenic');
   });
 });
 
@@ -38,7 +46,7 @@ describe('ClinVar: Benign Variants', () => {
     // Using a known benign variant
     const result = await getClinVarData('CFTR', 'p.I507V');
     
-    if (result) {
+    if (isClinVarResult(result)) {
       expect(['Benign', 'Likely benign']).toContain(result.clinicalSignificance);
     }
     // If no result, that's also acceptable for this test
@@ -74,7 +82,7 @@ describe('ClinVar: VUS Variants', () => {
     // Many BRCA2 variants are VUS
     const result = await getClinVarData('BRCA2', 'p.D2723H');
     
-    if (result) {
+    if (isClinVarResult(result)) {
       expect(result.clinicalSignificance).toMatch(/uncertain|VUS/i);
     }
   });
@@ -88,7 +96,7 @@ describe('ClinVar: Response Structure', () => {
   test('Result contains all required fields', async () => {
     const result = await getClinVarData('BRAF', 'p.V600E');
     
-    if (result) {
+    if (isClinVarResult(result)) {
       // Required fields
       expect(result).toHaveProperty('clinicalSignificance');
       expect(result).toHaveProperty('reviewStatus');
@@ -104,7 +112,7 @@ describe('ClinVar: Response Structure', () => {
   test('Review status is a valid level', async () => {
     const result = await getClinVarData('BRAF', 'p.V600E');
     
-    if (result) {
+    if (isClinVarResult(result)) {
       const validStatuses = [
         'practice guideline',
         'reviewed by expert panel',
@@ -130,7 +138,7 @@ describe('ClinVar: No Interpretation (Critical)', () => {
   test('Result does NOT contain interpretation text', async () => {
     const result = await getClinVarData('BRAF', 'p.V600E');
     
-    if (result) {
+    if (isClinVarResult(result)) {
       // Should NOT have fields that imply interpretation
       expect(result).not.toHaveProperty('interpretation');
       expect(result).not.toHaveProperty('mechanism');
