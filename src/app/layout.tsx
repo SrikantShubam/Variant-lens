@@ -22,8 +22,41 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'VariantLens-Open',
-  description: 'Understand genetic variants in 3D',
+  metadataBase: new URL('https://variantlens.open'),
+  title: {
+    default: 'VariantLens-Open',
+    template: '%s | VariantLens-Open',
+  },
+  description: 'Structure-aware evidence briefing for genetic variant research.',
+  keywords: [
+    'genetic variants',
+    'bioinformatics',
+    'structural biology',
+    'variant evidence',
+    'PDB',
+    'AlphaFold',
+    'UniProt',
+    'ClinVar',
+  ],
+  openGraph: {
+    title: 'VariantLens-Open',
+    description: 'Structure-aware evidence briefing for genetic variant research.',
+    url: 'https://variantlens.open',
+    siteName: 'VariantLens-Open',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'VariantLens-Open',
+    description: 'Structure-aware evidence briefing for genetic variant research.',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+  alternates: {
+    canonical: '/',
+  },
 }
 
 export default function RootLayout({

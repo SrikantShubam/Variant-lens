@@ -52,7 +52,7 @@ export default function Home() {
        
        <div className="relative z-10 p-4 md:p-8">
          <Hero />
-         
+
          <SearchInput onSearch={handleSearch} loading={loading} />
          
          <div className="mt-8 max-w-2xl mx-auto">

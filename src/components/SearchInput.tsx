@@ -11,6 +11,7 @@ interface SearchInputProps {
 }
 
 export default function SearchInput({ onSearch, loading }: SearchInputProps) {
+  const examples = ["BRAF:p.V600E", "TP53:p.R175H", "KRAS:p.G12D"];
   const [value, setValue] = useState("");
   const [isValid, setIsValid] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -37,8 +38,14 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
     }
   };
 
+  const handleExampleClick = (example: string) => {
+    if (loading) return;
+    setValue(example);
+    setIsValid(true);
+  };
+
   return (
-    <div className="w-full max-w-4xl mx-auto px-6 mb-20 relative z-20">
+    <div className="w-full max-w-4xl mx-auto px-6 relative z-20">
       
       {/* Input Container */}
       <form onSubmit={handleSubmit} className="relative group">
@@ -101,6 +108,22 @@ export default function SearchInput({ onSearch, loading }: SearchInputProps) {
         <div className="absolute -bottom-1 -right-1 w-2 h-2 border-b border-r border-white/30" />
 
       </form>
+
+      {/* Try Examples */}
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted">Try examples:</span>
+        {examples.map((example) => (
+          <button
+            key={example}
+            type="button"
+            onClick={() => handleExampleClick(example)}
+            disabled={loading}
+            className="rounded-md border border-white/15 bg-surface px-3 py-1 font-mono text-xs text-white transition-colors hover:border-primary/60 hover:text-primary disabled:opacity-60"
+          >
+            {`[ ${example} ]`}
+          </button>
+        ))}
+      </div>
 
       {/* Prominent Loading Indicator */}
       <AnimatePresence>

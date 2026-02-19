@@ -18,36 +18,62 @@ export default function Hero() {
       
       {/* Background Grid */}
       <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
-      
-      {/* Huge Kinetic Typography */}
-      <div className="z-10 font-heading font-black tracking-tighter leading-[0.85]">
-         <motion.div 
-           custom={0} 
-           variants={titleVariants} 
-           initial="hidden" 
-           animate="visible" 
-           className="text-[14vw] md:text-[10vw] uppercase text-gradient"
-         >
-             Variant
-         </motion.div>
-         <div className="flex items-center gap-4 md:gap-8">
-             <motion.div 
-               custom={1} 
-               variants={titleVariants} 
-               initial="hidden" 
-               animate="visible" 
-               className="w-12 h-2 md:w-32 md:h-4 bg-gradient-to-r from-primary via-tertiary to-secondary mt-4 md:mt-8" 
-             />
-             <motion.div 
-               custom={2} 
-               variants={titleVariants} 
-               initial="hidden" 
-               animate="visible" 
-               className="text-[14vw] md:text-[10vw] text-white uppercase"
-             >
-                 Lens
-             </motion.div>
-         </div>
+
+      <div className="z-10 grid items-start gap-10 lg:grid-cols-[minmax(0,1.8fr)_minmax(280px,1fr)]">
+        {/* Huge Kinetic Typography */}
+        <div className="font-heading font-black tracking-tighter leading-[0.85]">
+          <motion.div
+            custom={0}
+            variants={titleVariants}
+            initial="hidden"
+            animate="visible"
+            className="text-[14vw] md:text-[10vw] uppercase text-gradient"
+          >
+            Variant
+          </motion.div>
+          <div className="flex items-center gap-4 md:gap-8">
+            <motion.div
+              custom={1}
+              variants={titleVariants}
+              initial="hidden"
+              animate="visible"
+              className="w-12 h-2 md:w-32 md:h-4 bg-gradient-to-r from-primary via-tertiary to-secondary mt-4 md:mt-8"
+            />
+            <motion.div
+              custom={2}
+              variants={titleVariants}
+              initial="hidden"
+              animate="visible"
+              className="text-[14vw] md:text-[10vw] text-white uppercase"
+            >
+              Lens
+            </motion.div>
+          </div>
+        </div>
+
+        {/* What VariantLens Does */}
+        <motion.aside
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5, duration: 0.6 }}
+          className="rounded-2xl border border-white/10 bg-surface/60 p-6 backdrop-blur-sm lg:mt-6"
+        >
+          <h2 className="text-xl font-semibold text-white md:text-2xl">What VariantLens Does</h2>
+          <ul className="mt-4 space-y-3 text-sm text-foreground-muted md:text-base">
+            <li className="flex gap-2">
+              <span className="text-primary">•</span>
+              <span>Aggregates ClinVar, structure, and literature context</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-primary">•</span>
+              <span>Maps variants onto experimental or AlphaFold structures</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-primary">•</span>
+              <span>Explicitly highlights unknowns and gaps</span>
+            </li>
+          </ul>
+        </motion.aside>
       </div>
 
       {/* Tagline */}
