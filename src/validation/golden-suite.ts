@@ -1,6 +1,24 @@
 import * as fs from 'fs';
 import { GOLDEN_CASES } from './golden-cases';
 
+interface CompactSnapshot {
+  normalizedHgvs?: string;
+  gene?: string;
+  transcript?: string;
+  variantType?: string;
+  significance?: string;
+  clinicalStatus?: string;
+  clinicalSignificance?: string;
+  clinvarStars?: number;
+  clinvarId?: string;
+  domainAnnotated?: boolean;
+  domainName?: string;
+  structureStatus?: string;
+  structureId?: string;
+  literatureCount?: number;
+  unknownCount?: number;
+}
+
 interface GoldenResult {
   id: number;
   hgvs: string;
@@ -9,16 +27,47 @@ interface GoldenResult {
   checks: string[];
   error?: string;
   durationMs: number;
+  snapshot?: CompactSnapshot;
   payload?: unknown;
 }
 
 function assert(condition: boolean, message: string, checks: string[]) {
-  if (condition) {
-    checks.push(`PASS: ${message}`);
-  } else {
-    checks.push(`FAIL: ${message}`);
-  }
+  checks.push(`${condition ? 'PASS' : 'FAIL'}: ${message}`);
   return condition;
+}
+
+function parsePayload(text: string): any {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text.slice(0, 500) };
+  }
+}
+
+function summarizePayload(payload: any): CompactSnapshot | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  return {
+    normalizedHgvs: payload?.variant?.normalizedHgvs,
+    gene: payload?.variant?.gene,
+    transcript: payload?.variant?.transcript,
+    variantType: payload?.variant?.variantType,
+    significance: payload?.variant?.significance,
+    clinicalStatus: payload?.coverage?.clinical?.status,
+    clinicalSignificance: payload?.coverage?.clinical?.significance,
+    clinvarStars: payload?.coverage?.clinical?.stars,
+    clinvarId: payload?.coverage?.clinical?.clinvarId,
+    domainAnnotated: payload?.coverage?.domain?.inAnnotatedDomain,
+    domainName: payload?.coverage?.domain?.domainName,
+    structureStatus: payload?.coverage?.structure?.status,
+    structureId: payload?.coverage?.structure?.id,
+    literatureCount: payload?.coverage?.literature?.variantSpecificCount,
+    unknownCount: Array.isArray(payload?.unknowns?.items) ? payload.unknowns.items.length : undefined,
+  };
+}
+
+function failedChecks(checks: string[]): string[] {
+  return checks.filter((c) => c.startsWith('FAIL:'));
 }
 
 async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> {
@@ -36,17 +85,16 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
       });
 
       const text = await response.text();
-      const payload = text ? JSON.parse(text) : null;
+      const payload = parsePayload(text);
       let ok = true;
 
       if (testCase.expected.apiShouldReject) {
-        ok =
-          assert(!response.ok, 'API should reject this input', checks) &&
-          ok;
+        ok = assert(!response.ok, 'API should reject this input', checks) && ok;
         if (testCase.expected.apiErrorCode) {
           ok =
             assert(
-              payload?.code === testCase.expected.apiErrorCode || String(payload?.message || '').includes(testCase.expected.apiErrorCode),
+              payload?.code === testCase.expected.apiErrorCode ||
+                String(payload?.message || '').includes(testCase.expected.apiErrorCode),
               `Error code should be ${testCase.expected.apiErrorCode}`,
               checks
             ) && ok;
@@ -112,7 +160,9 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
           if (testCase.expected.domainNameIncludes) {
             ok =
               assert(
-                String(payload.coverage?.domain?.domainName || '').toLowerCase().includes(testCase.expected.domainNameIncludes.toLowerCase()),
+                String(payload.coverage?.domain?.domainName || '')
+                  .toLowerCase()
+                  .includes(testCase.expected.domainNameIncludes.toLowerCase()),
                 `Domain name should include ${testCase.expected.domainNameIncludes}`,
                 checks
               ) && ok;
@@ -147,6 +197,7 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
         checks,
         durationMs: Date.now() - started,
         payload,
+        snapshot: summarizePayload(payload),
       });
     } catch (error) {
       results.push({
@@ -163,42 +214,70 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
 
   const passCount = results.filter((r) => r.ok).length;
   const failCount = results.length - passCount;
+  const failures = results.filter((r) => !r.ok);
+  const avgMs =
+    results.length > 0
+      ? Math.round(results.reduce((sum, r) => sum + r.durationMs, 0) / results.length)
+      : 0;
+
   const report = [
-    '# Golden Suite Report',
+    '# Golden Report (Compact)',
     '',
     `Date: ${new Date().toISOString()}`,
     `Base URL: ${baseUrl}`,
     `Total: ${results.length}`,
     `Passed: ${passCount}`,
     `Failed: ${failCount}`,
+    `Avg Duration (ms): ${avgMs}`,
     '',
     '## Results',
     '',
-    '| # | Variant | Status | API | Duration (ms) |',
-    '|---|---------|--------|-----|---------------|',
+    '| # | Variant | Status | API | ms |',
+    '|---|---|---|---|---|',
     ...results.map((r) => `| ${r.id} | \`${r.hgvs}\` | ${r.ok ? 'PASS' : 'FAIL'} | ${r.status} | ${r.durationMs} |`),
     '',
-    '## Check Details',
+    '## Failures',
     '',
-    ...results.map((r) => {
-      const lines = [
-        `### ${r.id}. ${r.hgvs}`,
-        `- Result: ${r.ok ? 'PASS' : 'FAIL'}`,
-        `- API status: ${r.status}`,
-        ...(r.error ? [`- Error: ${r.error}`] : []),
-        ...r.checks.map((c) => `- ${c}`),
-        ...(r.payload !== undefined
-          ? ['- Raw response:', '```json', JSON.stringify(r.payload, null, 2), '```']
-          : []),
-        '',
-      ];
-      return lines.join('\n');
-    }),
+    ...(failures.length === 0
+      ? ['None']
+      : failures.map((r) => {
+          const failLines = failedChecks(r.checks);
+          const snapshot = r.snapshot
+            ? `- Snapshot: ${JSON.stringify(r.snapshot)}`
+            : '- Snapshot: unavailable';
+          return [
+            `### ${r.id}. ${r.hgvs}`,
+            `- API status: ${r.status}`,
+            ...(r.error ? [`- Error: ${r.error}`] : []),
+            ...failLines.map((f) => `- ${f}`),
+            snapshot,
+            '',
+          ].join('\n');
+        })),
+    '',
+    '## Token Notes',
+    '',
+    '- This markdown is compact by default (no full per-case raw JSON).',
+    '- Full raw responses are written to `golden_report_payloads.json`.',
   ].join('\n');
 
-  fs.writeFileSync('golden_suite_report.md', report, 'utf8');
+  const payloadDump = results.map((r) => ({
+    id: r.id,
+    hgvs: r.hgvs,
+    status: r.status,
+    ok: r.ok,
+    checks: r.checks,
+    error: r.error,
+    durationMs: r.durationMs,
+    payload: r.payload,
+  }));
+
+  fs.writeFileSync('golden_report.md', report, 'utf8');
+  fs.writeFileSync('golden_suite_report.md', report, 'utf8'); // Backward-compatible filename.
+  fs.writeFileSync('golden_report_payloads.json', JSON.stringify(payloadDump, null, 2), 'utf8');
   console.log(`Golden suite complete. Passed ${passCount}/${results.length}.`);
-  console.log('Report: golden_suite_report.md');
+  console.log('Compact report: golden_report.md');
+  console.log('Payload dump: golden_report_payloads.json');
 }
 
 const baseUrlFromCli = process.argv[2] || process.env.GOLDEN_BASE_URL || 'http://localhost:3000';
@@ -207,3 +286,4 @@ runGoldenSuite(baseUrlFromCli).catch((error) => {
   console.error('Golden suite failed:', error);
   process.exitCode = 1;
 });
+
