@@ -85,6 +85,13 @@ function buildQuickContext(data: HonestReportData): string {
 
   parts.push(`Direct PubMed matches: ${coverage.literature.variantSpecificCount}.`);
 
+  if (!curatedInfo.nearFunctionalSite && typeof curatedInfo.distanceToNearestSite === 'number') {
+    const distanceText = curatedInfo.distanceToNearestSite > 500
+      ? '>500 residues (functionally remote)'
+      : `${curatedInfo.distanceToNearestSite} residues`;
+    parts.push(`Nearest curated functional site is ${distanceText}.`);
+  }
+
   const why = buildWhyItMatters(data);
   if (why) parts.push(`Why it matters: ${why}`);
 

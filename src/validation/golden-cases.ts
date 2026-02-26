@@ -24,7 +24,11 @@ export const GOLDEN_CASES: GoldenCase[] = [
     hgvs: 'TP53:p.R175H',
     tier: 'famous',
     note: 'Well-characterized pathogenic variant with strong structural and clinical support.',
-    expected: { normalized: 'TP53:p.R175H' },
+    expected: {
+      normalized: 'TP53:p.R175H',
+      domainShouldBeAnnotated: true,
+      domainNameIncludes: 'dna',
+    },
   },
   {
     id: 2,
@@ -124,7 +128,11 @@ export const GOLDEN_CASES: GoldenCase[] = [
     hgvs: 'KRAS:p.G12D',
     tier: 'edge',
     note: 'Multiple-PDB benchmark to validate structure ranking and mapping.',
-    expected: { normalized: 'KRAS:p.G12D' },
+    expected: {
+      normalized: 'KRAS:p.G12D',
+      domainShouldBeAnnotated: true,
+      domainNameIncludes: 'switch',
+    },
   },
   {
     id: 15,
@@ -263,7 +271,11 @@ export const GOLDEN_CASES: GoldenCase[] = [
     hgvs: 'TP53:p.R248Q',
     tier: 'famous',
     note: 'Additional p53 hotspot benchmark.',
-    expected: { normalized: 'TP53:p.R248Q' },
+    expected: {
+      normalized: 'TP53:p.R248Q',
+      domainShouldBeAnnotated: true,
+      domainNameIncludes: 'dna',
+    },
   },
   {
     id: 33,

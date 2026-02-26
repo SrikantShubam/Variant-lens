@@ -28,6 +28,43 @@ export interface PubMedResult {
 const pubmedCache = new Map<string, PubMedResult | null>();
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
+function isPlaceholderTitle(title: string | undefined, pmid: string): boolean {
+  const normalized = String(title || '').trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized === pmid.toLowerCase() || normalized === `pmid ${pmid}`.toLowerCase();
+}
+
+function stripXmlTags(input: string): string {
+  return input.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function decodeBasicEntities(input: string): string {
+  return input
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+async function fetchArticleTitleFallback(pmid: string): Promise<string | null> {
+  try {
+    const efetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${pmid}&retmode=xml`;
+    const response = await fetch(efetchUrl);
+    if (!response.ok) return null;
+
+    const xml = await response.text();
+    const match = xml.match(/<ArticleTitle>([\s\S]*?)<\/ArticleTitle>/i);
+    if (!match) return null;
+
+    const title = decodeBasicEntities(stripXmlTags(match[1]));
+    if (!title || isPlaceholderTitle(title, pmid)) return null;
+    return title;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Search PubMed for variant-specific papers
  */
@@ -66,17 +103,27 @@ export async function searchPubMed(
       const summaryRes = await fetch(summaryUrl);
       if (summaryRes.ok) {
         const summaryData = await summaryRes.json();
-        papers = ids.map((id: string) => {
+        papers = [];
+        for (const id of ids) {
           const doc = summaryData.result[id];
-          return {
+          let title = (doc?.title || '').trim();
+          if (isPlaceholderTitle(title, id)) {
+            title = (await fetchArticleTitleFallback(id)) || '';
+          }
+          if (isPlaceholderTitle(title, id)) {
+            // Avoid exposing obviously broken titles such as "PMID 12345678".
+            continue;
+          }
+
+          papers.push({
             pmid: id,
-            title: doc?.title || `PMID ${id}`,
-            authors: doc.authors?.map((a: any) => a.name) || [],
+            title,
+            authors: doc?.authors?.map((a: any) => a.name) || [],
             source: doc?.source || 'PubMed',
             pubDate: doc?.pubdate || '',
             url: `https://pubmed.ncbi.nlm.nih.gov/${id}/`
-          };
-        });
+          });
+        }
       }
     }
 

@@ -57,15 +57,16 @@ export interface ParsedVariant {
 // e.g. "p.V600E" -> "V600E"
 export function extractProteinPart(input: string): string | null {
   const aaPattern = '([A-Za-z]{1,3})(\\d+)([A-Za-z]{1,3}fs\\*?\\d*|[A-Za-z]{1,3}|\\*|Ter|del|ins|dup|fs)';
+  const tokenTail = '(?=$|[^A-Za-z0-9])';
 
   // Case 1: starts directly with p.XnnnY
-  const startWithProteinMarker = input.match(new RegExp(`^p\\.${aaPattern}\\b`, 'i'));
+  const startWithProteinMarker = input.match(new RegExp(`^p\\.${aaPattern}${tokenTail}`, 'i'));
   if (startWithProteinMarker) {
     return `${startWithProteinMarker[1]}${startWithProteinMarker[2]}${startWithProteinMarker[3]}`;
   }
 
   // Case 2: appears after ":" or "(" with optional p. marker
-  const withDelimiter = input.match(new RegExp(`[:(](?:p\\.)?${aaPattern}\\b`, 'i'));
+  const withDelimiter = input.match(new RegExp(`[:(](?:p\\.)?${aaPattern}${tokenTail}`, 'i'));
   if (withDelimiter) {
     return `${withDelimiter[1]}${withDelimiter[2]}${withDelimiter[3]}`;
   }

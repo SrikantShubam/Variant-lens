@@ -218,7 +218,7 @@ function extractDomains(features: UniprotFeature[]): CuratedProteinInfo['domains
     if (!isKnownDomainType && !descriptionLooksDomainLike) continue;
 
     domains.push({
-      name: description || feature.type,
+      name: sanitizeDomainName(description || feature.type, type),
       start,
       end,
       description: description || undefined,
@@ -252,8 +252,9 @@ function extractDomainsFromCrossReferences(
     if (!range) continue;
 
     const label = findProperty(props, ['entry name', 'name', 'description']) || xref.id;
+    const cleanedLabel = sanitizeDomainName(label);
     domains.push({
-      name: `${xref.database}: ${label}`,
+      name: `${xref.database}: ${cleanedLabel}`,
       start: range.start,
       end: range.end,
       description: `${xref.database} annotation (${xref.id})`,
@@ -304,6 +305,27 @@ function toLocationNumber(value: unknown): number | null {
 
 function normalizePropertyKey(key: string | undefined): string {
   return (key || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function sanitizeDomainName(raw: string, featureType?: string): string {
+  const type = (featureType || '').toLowerCase();
+  let name = (raw || '').trim();
+  if (!name) return 'Annotated region';
+
+  // UniProt topology style labels should be human-friendly in reports.
+  name = name.replace(/^helical;\s*name=/i, '');
+  name = name.replace(/^topological domain;\s*name=/i, '');
+  name = name.replace(/^domain;\s*name=/i, '');
+  name = name.replace(/^region;\s*name=/i, '');
+  name = name.replace(/\s+/g, ' ').trim();
+
+  // Prevent opaque labels such as "3" from surfacing in reports.
+  if (/^\d+$/.test(name)) {
+    if (type === 'repeat') return `Repeat region ${name}`;
+    return `Region ${name}`;
+  }
+
+  return name;
 }
 
 function findProperty(
@@ -374,6 +396,14 @@ const CURATED_DOMAIN_FALLBACKS: Record<string, CuratedProteinInfo['domains']> = 
       description: 'Curated fallback when Pfam/Gene3D ranges are missing',
     },
   ],
+  KRAS: [
+    {
+      name: 'P-loop / Switch region',
+      start: 1,
+      end: 40,
+      description: 'Curated fallback for small-GTPase hotspot region coverage',
+    },
+  ],
 };
 
 function getFallbackDomainsForGene(gene: string): CuratedProteinInfo['domains'] {
@@ -414,11 +444,49 @@ export function validateVariantPosition(
 // ==========================================
 
 function findDomainForPosition(
-  domains: CuratedProteinInfo['domains'], 
-  position: number
+  domains: CuratedProteinInfo['domains'],
+  position: number,
+  gene?: string
 ): string | null {
-  const domain = domains.find(d => position >= d.start && position <= d.end);
-  return domain ? domain.name : null;
+  const containing = domains.filter((d) => position >= d.start && position <= d.end);
+  if (containing.length === 0) return null;
+
+  const upperGene = (gene || '').toUpperCase();
+  const sorted = [...containing].sort((a, b) => domainPriorityScore(b, upperGene) - domainPriorityScore(a, upperGene));
+  return sorted[0].name;
+}
+
+function domainPriorityScore(domain: CuratedProteinInfo['domains'][number], gene: string): number {
+  const name = domain.name.toLowerCase();
+  let score = 0;
+
+  if (name.startsWith('pfam:')) score += 120;
+  if (name.startsWith('gene3d:')) score += 110;
+  if (name.includes('domain')) score += 40;
+  if (name.includes('interaction')) score -= 35;
+  if (name.includes('region')) score -= 10;
+
+  const length = Math.max(1, domain.end - domain.start + 1);
+  score += Math.max(0, 20 - Math.floor(length / 25));
+
+  if (gene === 'TP53') {
+    if (name.includes('dna') && name.includes('binding')) score += 200;
+    if (name.includes('ccar2')) score -= 200;
+  }
+
+  return score;
+}
+
+function applyCanonicalDomainOverrides(
+  gene: string,
+  position: number,
+  current: string | null
+): string | null {
+  const upper = gene.toUpperCase();
+  if (upper === 'TP53' && position >= 102 && position <= 292) {
+    return 'DNA-binding domain';
+  }
+  return current;
 }
 
 // ==========================================
@@ -489,7 +557,7 @@ export async function curateUniprotData(
   const functionalSites = extractFunctionalSites(features);
   
   // 6. Analyze variant position
-  let variantInDomain = findDomainForPosition(domains, residueNumber);
+  let variantInDomain = findDomainForPosition(domains, residueNumber, geneName);
   if (!variantInDomain) {
     const fallbackMatch = getFallbackDomainsForGene(geneName).find(
       (domain) => residueNumber >= domain.start && residueNumber <= domain.end
@@ -499,6 +567,7 @@ export async function curateUniprotData(
       domains = dedupeDomains([...domains, fallbackMatch]);
     }
   }
+  variantInDomain = applyCanonicalDomainOverrides(geneName, residueNumber, variantInDomain);
   const siteAnalysis = findNearestSite(functionalSites, residueNumber);
   
   return {

@@ -86,6 +86,12 @@ describe('Variant Normalization', () => {
       expect(result.type).toBe('nonsense');
     });
 
+    it('accepts stop-gain notation for single-position truncation hotspots', () => {
+      const result = parseHGVS('DMD:p.Q1*');
+      expect(result.alt).toBe('*');
+      expect(result.type).toBe('nonsense');
+    });
+
     it('accepts stop-gain notation with Ter', () => {
       const result = parseHGVS('CFTR:p.G542Ter');
       expect(result.alt).toBe('*');
@@ -136,6 +142,7 @@ describe('Variant Normalization', () => {
       expect(normalizeVariant('CFTR:p.G542*').normalized).toBe('CFTR:p.G542Ter');
       expect(normalizeVariant('CFTR:p.G542X').normalized).toBe('CFTR:p.G542Ter');
       expect(normalizeVariant('CFTR:p.G542Ter').normalized).toBe('CFTR:p.G542Ter');
+      expect(normalizeVariant('DMD:p.Q1*').normalized).toBe('DMD:p.Q1Ter');
     });
   });
 });
