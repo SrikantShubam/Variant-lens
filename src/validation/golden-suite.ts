@@ -70,10 +70,22 @@ function failedChecks(checks: string[]): string[] {
   return checks.filter((c) => c.startsWith('FAIL:'));
 }
 
-async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> {
-  const results: GoldenResult[] = [];
+function parseCaseIdFilter(input: string | undefined): Set<number> | null {
+  if (!input) return null;
+  const ids = input
+    .split(',')
+    .map((part) => Number(part.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  return ids.length > 0 ? new Set(ids) : null;
+}
 
-  for (const testCase of GOLDEN_CASES) {
+async function runGoldenSuite(baseUrl = 'http://localhost:3000', caseIdFilter: Set<number> | null = null): Promise<void> {
+  const results: GoldenResult[] = [];
+  const casesToRun = caseIdFilter
+    ? GOLDEN_CASES.filter((testCase) => caseIdFilter.has(testCase.id))
+    : GOLDEN_CASES;
+
+  for (const testCase of casesToRun) {
     const started = Date.now();
     const checks: string[] = [];
 
@@ -329,6 +341,7 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
     `Passed: ${passCount}`,
     `Failed: ${failCount}`,
     `Avg Duration (ms): ${avgMs}`,
+    ...(caseIdFilter ? [`Case Filter: ${[...caseIdFilter].sort((a, b) => a - b).join(', ')}`] : []),
     '',
     '## Results',
     '',
@@ -381,8 +394,10 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
 }
 
 const baseUrlFromCli = process.argv[2] || process.env.GOLDEN_BASE_URL || 'http://localhost:3000';
+const caseFilterInput = process.argv[3] || process.env.GOLDEN_CASE_IDS;
+const caseFilter = parseCaseIdFilter(caseFilterInput);
 
-runGoldenSuite(baseUrlFromCli).catch((error) => {
+runGoldenSuite(baseUrlFromCli, caseFilter).catch((error) => {
   console.error('Golden suite failed:', error);
   process.exitCode = 1;
 });
