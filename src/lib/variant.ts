@@ -85,16 +85,25 @@ export function parseHGVS(hgvs: string): ParsedVariant {
     throw new Error('Invalid HGVS format: empty input');
   }
 
-  const cleanInput = hgvs.trim().replace(/\s+/g, '');
+  const rawInput = hgvs.trim();
+  if (/p\.[A-Za-z*]+\d+.*\s+p\./i.test(rawInput)) {
+    throw new Error('Invalid HGVS format. Only one protein variant per request is supported.');
+  }
+
+  const cleanInput = rawInput.replace(/\s+/g, '');
 
   if (/p\.=/i.test(cleanInput)) {
     throw new Error('Invalid HGVS format. p.= (no protein change) is not supported.');
   }
 
+  if (/p\.[^:()]*p\./i.test(cleanInput)) {
+    throw new Error('Invalid HGVS format. Only one protein variant per request is supported.');
+  }
+
   // Guard only against truly multiple protein-variant blocks (e.g. "p.R175H p.R248Q").
   // We intentionally count explicit "p." blocks only, so valid symbols like TP53 are never miscounted.
   const explicitProteinBlocks =
-    cleanInput.match(/p\.[A-Za-z]{1,3}\d+(?:[A-Za-z]{1,3}fs\*?\d*|[A-Za-z]{1,3}|\*|Ter|X|del|ins|dup|fs)/gi) || [];
+    cleanInput.match(/p\.[A-Za-z]{1,3}\d+(?:[A-Za-z]{1,3}fs\*?\d*|[A-Za-z]{1,3}|\*|Ter|X|del|ins|dup|fs)(?=$|[^A-Za-z0-9])/gi) || [];
   if (explicitProteinBlocks.length > 1) {
     throw new Error('Invalid HGVS format. Only one protein variant per request is supported.');
   }
