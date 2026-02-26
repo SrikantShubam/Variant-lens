@@ -425,6 +425,15 @@ const COMMON_GENES: Record<string, string> = {
   'SCN5A': 'Q14524',
   'APOE': 'P02649',
   'DMD': 'P11532',
+  'MYH7': 'P12883',
+  'LDLR': 'P01130',
+  'COL1A1': 'P02452',
+  'TSC2': 'P49815',
+  'LMNA': 'P02545',
+  'GBA': 'P04062',
+  'NOTCH1': 'P46531',
+  'FBN1': 'P35555',
+  'OBSCN': 'Q5VST9',
 };
 
 async function fetchUniprotId(gene: string): Promise<string | null> {

@@ -88,6 +88,15 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
       const payload = parsePayload(text);
       let ok = true;
 
+      if (typeof testCase.expected.expectedStatus === 'number') {
+        ok =
+          assert(
+            response.status === testCase.expected.expectedStatus,
+            `API status should be ${testCase.expected.expectedStatus}`,
+            checks
+          ) && ok;
+      }
+
       if (testCase.expected.apiShouldReject) {
         ok = assert(!response.ok, 'API should reject this input', checks) && ok;
         if (testCase.expected.apiErrorCode) {
@@ -96,6 +105,15 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
               payload?.code === testCase.expected.apiErrorCode ||
                 String(payload?.message || '').includes(testCase.expected.apiErrorCode),
               `Error code should be ${testCase.expected.apiErrorCode}`,
+              checks
+            ) && ok;
+        }
+        if (testCase.expected.errorContains) {
+          const errorText = `${payload?.error || ''} ${payload?.message || ''}`.toLowerCase();
+          ok =
+            assert(
+              errorText.includes(testCase.expected.errorContains.toLowerCase()),
+              `Error should mention "${testCase.expected.errorContains}"`,
               checks
             ) && ok;
         }
@@ -168,6 +186,53 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
               ) && ok;
           }
 
+          if (testCase.expected.variantType) {
+            ok =
+              assert(
+                payload.variant?.variantType === testCase.expected.variantType,
+                `variantType should be ${testCase.expected.variantType}`,
+                checks
+              ) && ok;
+          }
+
+          if (typeof testCase.expected.residue === 'number') {
+            ok =
+              assert(
+                payload.variant?.residue === testCase.expected.residue,
+                `residue should be ${testCase.expected.residue}`,
+                checks
+              ) && ok;
+          }
+
+          if (typeof testCase.expected.isValidPosition === 'boolean') {
+            ok =
+              assert(
+                payload.variant?.isValidPosition === testCase.expected.isValidPosition,
+                `isValidPosition should be ${testCase.expected.isValidPosition}`,
+                checks
+              ) && ok;
+          }
+
+          if (testCase.expected.clinicalShouldBePathogenicOrLikely) {
+            const sig = String(payload.coverage?.clinical?.significance || '').toLowerCase();
+            const status = String(payload.coverage?.clinical?.status || '').toLowerCase();
+            ok =
+              assert(
+                sig.includes('pathogenic') || status === 'pathogenic' || status === 'likely_pathogenic',
+                'ClinVar significance should be pathogenic or likely pathogenic',
+                checks
+              ) && ok;
+          }
+
+          if (testCase.expected.unknownSeverityDefined) {
+            ok =
+              assert(
+                typeof payload.unknowns?.severity === 'string' && payload.unknowns.severity.length > 0,
+                'unknowns severity should be defined',
+                checks
+              ) && ok;
+          }
+
           if (String(payload.variant?.variantType || '') === 'stop-gain') {
             ok =
               assert(
@@ -185,6 +250,41 @@ async function runGoldenSuite(baseUrl = 'http://localhost:3000'): Promise<void> 
                 'Conflicting ClinVar significance must not map to pathogenic status',
                 checks
               ) && ok;
+          }
+
+          if (testCase.expected.repeatCallShouldMatch) {
+            const repeatStarted = Date.now();
+            const repeatResponse = await fetch(`${baseUrl}/api/variant`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hgvs: testCase.hgvs }),
+            });
+            const repeatText = await repeatResponse.text();
+            const repeatPayload = parsePayload(repeatText);
+            const repeatDuration = Date.now() - repeatStarted;
+
+            ok =
+              assert(
+                repeatResponse.status === response.status,
+                'Second identical call should return same status',
+                checks
+              ) && ok;
+            ok =
+              assert(
+                repeatPayload?.variant?.normalizedHgvs === payload?.variant?.normalizedHgvs,
+                'Second identical call should return same result',
+                checks
+              ) && ok;
+
+            if (typeof testCase.expected.repeatCallMaxMs === 'number') {
+              const measuredMs = Number(repeatPayload?.processingMs || repeatDuration);
+              ok =
+                assert(
+                  Number.isFinite(measuredMs) && measuredMs <= testCase.expected.repeatCallMaxMs,
+                  `processingMs for cached response should be <= ${testCase.expected.repeatCallMaxMs}ms`,
+                  checks
+                ) && ok;
+            }
           }
         }
       }
@@ -286,4 +386,3 @@ runGoldenSuite(baseUrlFromCli).catch((error) => {
   console.error('Golden suite failed:', error);
   process.exitCode = 1;
 });
-

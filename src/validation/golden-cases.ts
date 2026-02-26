@@ -6,13 +6,22 @@ export interface GoldenCase {
   tier: GoldenCaseTier;
   note: string;
   expected: {
+    expectedStatus?: number;
     normalized?: string;
     transcript?: string;
     expectedGene?: string;
     expectedUniprotId?: string;
     mustNotGene?: string;
+    variantType?: 'missense' | 'stop-gain' | 'deletion' | 'insertion' | 'duplication' | 'frameshift' | 'silent' | 'unknown';
+    residue?: number;
+    isValidPosition?: boolean;
     domainShouldBeAnnotated?: boolean;
     domainNameIncludes?: string;
+    clinicalShouldBePathogenicOrLikely?: boolean;
+    unknownSeverityDefined?: boolean;
+    errorContains?: string;
+    repeatCallShouldMatch?: boolean;
+    repeatCallMaxMs?: number;
     apiShouldReject?: boolean;
     apiErrorCode?: 'UNKNOWN_GENE' | 'INVALID_POSITION';
   };
@@ -218,7 +227,7 @@ export const GOLDEN_CASES: GoldenCase[] = [
     hgvs: 'CFTR:p.G542*',
     tier: 'edge',
     note: 'Nonsense/stop-gain notation handling.',
-    expected: { normalized: 'CFTR:p.G542Ter' },
+    expected: { normalized: 'CFTR:p.G542Ter', variantType: 'stop-gain' },
   },
   {
     id: 26,
@@ -264,7 +273,7 @@ export const GOLDEN_CASES: GoldenCase[] = [
     hgvs: 'DMD:p.Q1*',
     tier: 'edge',
     note: 'Nonsense at start codon region in a very large protein.',
-    expected: { normalized: 'DMD:p.Q1Ter' },
+    expected: { normalized: 'DMD:p.Q1Ter', variantType: 'stop-gain' },
   },
   {
     id: 32,
@@ -283,6 +292,235 @@ export const GOLDEN_CASES: GoldenCase[] = [
     tier: 'edge',
     note: 'Mitochondrial nucleotide notation should be rejected.',
     expected: { apiShouldReject: true },
+  },
+  {
+    id: 34,
+    hgvs: 'CFTR:p.G542X',
+    tier: 'edge',
+    note: 'Legacy X stop notation - still common in older CF literature.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'CFTR:p.G542Ter',
+      variantType: 'stop-gain',
+    },
+  },
+  {
+    id: 35,
+    hgvs: 'CFTR:p.Gly542Ter',
+    tier: 'edge',
+    note: 'Three-letter + Ter stop notation - HGVS strict form.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'CFTR:p.G542Ter',
+      variantType: 'stop-gain',
+    },
+  },
+  {
+    id: 36,
+    hgvs: 'MYH7:p.R403Q',
+    tier: 'famous',
+    note: 'Classic hypertrophic cardiomyopathy mutation with strong evidence.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'MYH7:p.R403Q',
+      domainShouldBeAnnotated: true,
+      clinicalShouldBePathogenicOrLikely: true,
+    },
+  },
+  {
+    id: 37,
+    hgvs: 'TP53:p.M1V',
+    tier: 'edge',
+    note: 'Residue 1 boundary test at protein start.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'TP53:p.M1V',
+      residue: 1,
+      isValidPosition: true,
+    },
+  },
+  {
+    id: 38,
+    hgvs: 'CFTR:p.L1480P',
+    tier: 'edge',
+    note: 'Upper boundary test at final CFTR residue.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'CFTR:p.L1480P',
+      residue: 1480,
+      isValidPosition: true,
+    },
+  },
+  {
+    id: 39,
+    hgvs: 'CFTR:p.L1481P',
+    tier: 'edge',
+    note: 'One past final residue must be rejected.',
+    expected: {
+      expectedStatus: 400,
+      apiShouldReject: true,
+      apiErrorCode: 'INVALID_POSITION',
+      errorContains: 'exceeds',
+    },
+  },
+  {
+    id: 40,
+    hgvs: 'BRCA2:p.Y3308dup',
+    tier: 'edge',
+    note: 'Single-residue duplication class coverage.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'BRCA2:p.Y3308dup',
+      variantType: 'duplication',
+    },
+  },
+  {
+    id: 41,
+    hgvs: 'BRCA1:p.M1775R',
+    tier: 'famous',
+    note: 'Known pathogenic BRCA1 BRCT-domain missense.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'BRCA1:p.M1775R',
+      domainShouldBeAnnotated: true,
+      domainNameIncludes: 'brct',
+    },
+  },
+  {
+    id: 42,
+    hgvs: 'OBSCN:p.R4344Q',
+    tier: 'obscure',
+    note: 'Sparse-data giant-protein scenario should degrade gracefully.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'OBSCN:p.R4344Q',
+      unknownSeverityDefined: true,
+    },
+  },
+  {
+    id: 43,
+    hgvs: 'LDLR:p.G544V',
+    tier: 'famous',
+    note: 'Familial hypercholesterolemia cardiology variant.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'LDLR:p.G544V',
+      clinicalShouldBePathogenicOrLikely: true,
+    },
+  },
+  {
+    id: 44,
+    hgvs: 'COL1A1:p.G1003V',
+    tier: 'obscure',
+    note: 'Collagen repeat-domain domain-mapping stress test.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'COL1A1:p.G1003V',
+      domainShouldBeAnnotated: true,
+    },
+  },
+  {
+    id: 45,
+    hgvs: 'TSC2:p.R611Q',
+    tier: 'obscure',
+    note: 'TSC2/TSC1 mislabel trap.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'TSC2:p.R611Q',
+      expectedGene: 'TSC2',
+      mustNotGene: 'TSC1',
+    },
+  },
+  {
+    id: 46,
+    hgvs: 'LMNA:p.R527P',
+    tier: 'obscure',
+    note: 'Laminopathy variant with domain context.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'LMNA:p.R527P',
+      domainShouldBeAnnotated: true,
+    },
+  },
+  {
+    id: 47,
+    hgvs: 'GBA:p.N409S',
+    tier: 'famous',
+    note: 'Common Gaucher disease variant.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'GBA:p.N409S',
+      clinicalShouldBePathogenicOrLikely: true,
+    },
+  },
+  {
+    id: 48,
+    hgvs: 'PTEN:p.R130Q',
+    tier: 'famous',
+    note: 'PTEN phosphatase-domain hotspot-adjacent variant.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'PTEN:p.R130Q',
+      domainShouldBeAnnotated: true,
+      clinicalShouldBePathogenicOrLikely: true,
+    },
+  },
+  {
+    id: 49,
+    hgvs: 'NOTCH1:p.R1279H',
+    tier: 'obscure',
+    note: 'Large multi-domain receptor domain extraction check.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'NOTCH1:p.R1279H',
+      domainShouldBeAnnotated: true,
+    },
+  },
+  {
+    id: 50,
+    hgvs: 'CFTR:p.=',
+    tier: 'edge',
+    note: 'No-change p.= should be rejected gracefully.',
+    expected: {
+      expectedStatus: 400,
+      apiShouldReject: true,
+      errorContains: 'invalid hgvs',
+    },
+  },
+  {
+    id: 51,
+    hgvs: 'TP53:p.R175H p.R248Q',
+    tier: 'edge',
+    note: 'Two variants in one input should be rejected cleanly.',
+    expected: {
+      expectedStatus: 400,
+      apiShouldReject: true,
+      errorContains: 'one protein variant',
+    },
+  },
+  {
+    id: 52,
+    hgvs: 'BRCA1:p.Q1756fs',
+    tier: 'edge',
+    note: 'Idempotency and cache-speed check on repeated request.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'BRCA1:p.Q1756fs',
+      repeatCallShouldMatch: true,
+      repeatCallMaxMs: 100,
+    },
+  },
+  {
+    id: 53,
+    hgvs: 'FBN1:p.C1663R',
+    tier: 'famous',
+    note: 'Marfan syndrome cbEGF-repeat variant.',
+    expected: {
+      expectedStatus: 200,
+      normalized: 'FBN1:p.C1663R',
+      domainShouldBeAnnotated: true,
+      clinicalShouldBePathogenicOrLikely: true,
+    },
   },
 ];
 

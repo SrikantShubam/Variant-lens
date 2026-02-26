@@ -49,7 +49,7 @@ export interface ParsedVariant {
   pos: number;
   alt: string;
   transcript?: string;
-  type: 'missense' | 'nonsense' | 'silent' | 'deletion' | 'insertion' | 'frameshift' | 'unknown';
+  type: 'missense' | 'nonsense' | 'silent' | 'deletion' | 'insertion' | 'duplication' | 'frameshift' | 'unknown';
 }
 
 // Helper to extract protein part from potentially transcript-prefixed string
@@ -86,6 +86,15 @@ export function parseHGVS(hgvs: string): ParsedVariant {
   }
 
   const cleanInput = hgvs.trim().replace(/\s+/g, '');
+
+  if (/p\.=/i.test(cleanInput)) {
+    throw new Error('Invalid HGVS format. p.= (no protein change) is not supported.');
+  }
+
+  const proteinTokenMatches = cleanInput.match(/(?:^|[:(])(?:p\.)?[A-Za-z]{1,3}\d+(?:[A-Za-z]{1,3}|\*|Ter|X|del|ins|dup|fs(?:\*?\d+)?)?/gi) || [];
+  if (proteinTokenMatches.length > 1) {
+    throw new Error('Invalid HGVS format. Only one protein variant per request is supported.');
+  }
 
   if (/^rs\d+$/i.test(cleanInput)) {
     throw new Error('dbSNP rsIDs are not supported directly. Please provide protein HGVS (e.g. BRAF:p.V600E).');
@@ -143,13 +152,19 @@ export function parseHGVS(hgvs: string): ParsedVariant {
   }
 
   if (['del', 'ins', 'dup', 'fs'].includes(normalizedAltRaw)) {
+    const typeByToken: Record<string, ParsedVariant['type']> = {
+      del: 'deletion',
+      ins: 'insertion',
+      dup: 'duplication',
+      fs: 'frameshift',
+    };
     return {
       gene,
       ref: convertAA(refRaw),
       pos,
       alt: normalizedAltRaw,
       transcript,
-      type: normalizedAltRaw === 'del' ? 'deletion' : normalizedAltRaw === 'ins' ? 'insertion' : 'unknown',
+      type: typeByToken[normalizedAltRaw] || 'unknown',
     };
   }
 

@@ -112,6 +112,14 @@ describe('Variant Normalization', () => {
       expect(() => parseHGVS('CFTR:c.1521_1523delCTT')).toThrow('Protein HGVS required');
     });
 
+    it('rejects p.= as unsupported no-change notation', () => {
+      expect(() => parseHGVS('CFTR:p.=')).toThrow('p.= (no protein change) is not supported');
+    });
+
+    it('rejects inputs containing more than one protein variant token', () => {
+      expect(() => parseHGVS('TP53:p.R175H p.R248Q')).toThrow('Only one protein variant per request is supported');
+    });
+
     it('rejects rsID-only input with a clear message', () => {
       expect(() => parseHGVS('rs113488022')).toThrow('dbSNP rsIDs are not supported directly');
     });
@@ -130,6 +138,12 @@ describe('Variant Normalization', () => {
     it('normalizes frameshift variants to fs', () => {
       const result = normalizeVariant('BRCA2:p.Ser1982Argfs*22');
       expect(result.normalized).toBe('BRCA2:p.S1982fs');
+    });
+
+    it('preserves duplication token during normalization', () => {
+      const result = normalizeVariant('BRCA2:p.Y3308dup');
+      expect(result.normalized).toBe('BRCA2:p.Y3308dup');
+      expect(result.parsed.type).toBe('duplication');
     });
 
     it('normalizes transcript-prefixed CFTR HGVS', () => {

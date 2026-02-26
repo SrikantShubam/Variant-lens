@@ -75,6 +75,15 @@ const COMMON_GENES: Record<string, string> = {
   'SCN5A': 'Q14524',
   'APOE': 'P02649',
   'DMD': 'P11532',
+  'MYH7': 'P12883',
+  'LDLR': 'P01130',
+  'COL1A1': 'P02452',
+  'TSC2': 'P49815',
+  'LMNA': 'P02545',
+  'GBA': 'P04062',
+  'NOTCH1': 'P46531',
+  'FBN1': 'P35555',
+  'OBSCN': 'Q5VST9',
 };
 
 import { fetchWithRetry, FetchResult, FetchFailure, ServiceUnavailableError } from './fetch-utils';
@@ -402,6 +411,62 @@ const CURATED_DOMAIN_FALLBACKS: Record<string, CuratedProteinInfo['domains']> = 
       start: 1,
       end: 40,
       description: 'Curated fallback for small-GTPase hotspot region coverage',
+    },
+  ],
+  BRCA1: [
+    {
+      name: 'BRCT domain',
+      start: 1646,
+      end: 1855,
+      description: 'Curated fallback for BRCA1 C-terminal BRCT tandem repeats',
+    },
+  ],
+  MYH7: [
+    {
+      name: 'Myosin motor domain',
+      start: 1,
+      end: 779,
+      description: 'Curated fallback for canonical beta-myosin heavy chain motor head',
+    },
+  ],
+  COL1A1: [
+    {
+      name: 'Collagen triple-helical region',
+      start: 338,
+      end: 1217,
+      description: 'Curated fallback for COL1A1 collagenous repeat region',
+    },
+  ],
+  LMNA: [
+    {
+      name: 'Lamin tail / Ig-like domain',
+      start: 430,
+      end: 545,
+      description: 'Curated fallback for LMNA C-terminal immunoglobulin-like fold',
+    },
+  ],
+  NOTCH1: [
+    {
+      name: 'EGF-like repeats region',
+      start: 36,
+      end: 1447,
+      description: 'Curated fallback for extracellular EGF-like repeat block',
+    },
+  ],
+  FBN1: [
+    {
+      name: 'Calcium-binding EGF-like repeats',
+      start: 31,
+      end: 2731,
+      description: 'Curated fallback for FBN1 cbEGF repeat-rich ectodomain',
+    },
+  ],
+  PTEN: [
+    {
+      name: 'Phosphatase domain',
+      start: 14,
+      end: 185,
+      description: 'Curated fallback for PTEN catalytic phosphatase domain',
     },
   ],
 };
