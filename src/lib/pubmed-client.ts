@@ -70,10 +70,10 @@ export async function searchPubMed(
           const doc = summaryData.result[id];
           return {
             pmid: id,
-            title: doc.title,
+            title: doc?.title || `PMID ${id}`,
             authors: doc.authors?.map((a: any) => a.name) || [],
-            source: doc.source,
-            pubDate: doc.pubdate,
+            source: doc?.source || 'PubMed',
+            pubDate: doc?.pubdate || '',
             url: `https://pubmed.ncbi.nlm.nih.gov/${id}/`
           };
         });

@@ -482,7 +482,10 @@ export async function buildEvidenceCoverage(
             title: p.title,
             url: p.url,
             source: p.source,
-            year: p.pubDate.split(' ')[0] 
+            // Some PubMed summaries omit pubdate; keep response stable instead of throwing.
+            year: typeof p.pubDate === 'string' && p.pubDate.trim()
+              ? p.pubDate.split(' ')[0]
+              : 'unknown'
           })),
           note: (literatureData?.count || 0) === 0 ? UNKNOWN_MESSAGES.NO_LITERATURE : undefined,
       };

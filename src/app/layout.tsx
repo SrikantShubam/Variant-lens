@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 import { clsx } from 'clsx'
+import { PostHogProvider, PostHogPageView } from '@/components/PostHogProvider'
+import { Suspense } from 'react'
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -66,7 +68,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={clsx(inter.variable, spaceGrotesk.variable, jetbrainsMono.variable)}>
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        <PostHogProvider>
+          <Suspense fallback={null}>
+            <PostHogPageView />
+          </Suspense>
+          {children}
+        </PostHogProvider>
+      </body>
     </html>
   )
 }
