@@ -91,8 +91,11 @@ export function parseHGVS(hgvs: string): ParsedVariant {
     throw new Error('Invalid HGVS format. p.= (no protein change) is not supported.');
   }
 
-  const proteinTokenMatches = cleanInput.match(/(?:^|[:(])(?:p\.)?[A-Za-z]{1,3}\d+(?:[A-Za-z]{1,3}|\*|Ter|X|del|ins|dup|fs(?:\*?\d+)?)?/gi) || [];
-  if (proteinTokenMatches.length > 1) {
+  // Guard only against truly multiple protein-variant blocks (e.g. "p.R175H p.R248Q").
+  // We intentionally count explicit "p." blocks only, so valid symbols like TP53 are never miscounted.
+  const explicitProteinBlocks =
+    cleanInput.match(/p\.[A-Za-z]{1,3}\d+(?:[A-Za-z]{1,3}fs\*?\d*|[A-Za-z]{1,3}|\*|Ter|X|del|ins|dup|fs)/gi) || [];
+  if (explicitProteinBlocks.length > 1) {
     throw new Error('Invalid HGVS format. Only one protein variant per request is supported.');
   }
 

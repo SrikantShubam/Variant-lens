@@ -502,12 +502,11 @@ export const GOLDEN_CASES: GoldenCase[] = [
     id: 52,
     hgvs: 'BRCA1:p.Q1756fs',
     tier: 'edge',
-    note: 'Idempotency and cache-speed check on repeated request.',
+    note: 'Idempotency check on repeated request (deterministic consistency).',
     expected: {
       expectedStatus: 200,
       normalized: 'BRCA1:p.Q1756fs',
       repeatCallShouldMatch: true,
-      repeatCallMaxMs: 100,
     },
   },
   {

@@ -50,6 +50,31 @@ interface ParsedAllele {
 // ==========================================
 const clinvarCache = new Map<string, FetchResult<ClinVarResult>>();
 
+// Gene symbol aliases that matter for ClinVar indexing.
+const CLINVAR_GENE_ALIASES: Record<string, string[]> = {
+  GBA: ['GBA', 'GBA1'],
+  GBA1: ['GBA1', 'GBA'],
+};
+
+function getGeneSearchTerms(gene: string): string[] {
+  const upper = gene.toUpperCase();
+  return CLINVAR_GENE_ALIASES[upper] || [upper];
+}
+
+function genesEquivalent(a: string, b: string): boolean {
+  const aUpper = (a || '').toUpperCase();
+  const bUpper = (b || '').toUpperCase();
+  if (!aUpper || !bUpper) return false;
+  if (aUpper === bUpper) return true;
+
+  const aTerms = new Set(getGeneSearchTerms(aUpper));
+  const bTerms = new Set(getGeneSearchTerms(bUpper));
+  for (const term of aTerms) {
+    if (bTerms.has(term)) return true;
+  }
+  return false;
+}
+
 // ==========================================
 // PUBLIC API
 // ==========================================
@@ -279,7 +304,11 @@ function pickBestClinVarEntry(
     if (!inputAllele) {
       console.warn(`[ClinVar] Could not parse input allele: ${gene} ${proteinChange}`);
       // Can't do allele matching — return best by gene match only as 'partial'
-      const geneMatches = candidates.filter(c => (c.title || '').includes(gene));
+      const geneTerms = getGeneSearchTerms(gene);
+      const geneMatches = candidates.filter((c) => {
+        const title = (c.title || '').toUpperCase();
+        return geneTerms.some((term) => title.includes(term));
+      });
       if (geneMatches.length > 0) {
         const best = geneMatches.sort((a, b) => getReviewStars(b.reviewStatus) - getReviewStars(a.reviewStatus))[0];
         best.matchType = 'partial';
@@ -303,7 +332,7 @@ function pickBestClinVarEntry(
         if (candidateAllele) {
           // Gene check
           const geneMatch = candidateAllele.gene === '' || // unknown gene in candidate is OK
-            candidateAllele.gene.toUpperCase() === inputAllele.gene.toUpperCase();
+            genesEquivalent(candidateAllele.gene, inputAllele.gene);
           
           // Position check
           const posMatch = candidateAllele.pos === inputAllele.pos;
@@ -343,7 +372,9 @@ function pickBestClinVarEntry(
           // else: none (score 0)
         } else {
           // Parse failed — check title for gene at minimum
-          if ((c.title || '').includes(gene)) {
+          const title = (c.title || '').toUpperCase();
+          const geneTerms = getGeneSearchTerms(gene);
+          if (geneTerms.some((term) => title.includes(term))) {
             matchType = 'partial'; // NEVER exact from failed parse
             score = 5;
           }
@@ -444,12 +475,14 @@ function parseInputToAllele(gene: string, proteinChange: string): ParsedAllele |
  * Search ClinVar for a variant
  */
 async function searchClinVar(gene: string, proteinChange: string): Promise<FetchResult<any>> {
+  const geneTerms = getGeneSearchTerms(gene);
   const searchTerms = buildClinVarVariantTerms(proteinChange);
+  const geneClause = geneTerms.map((g) => `${g}[gene]`).join(' OR ');
 
-  const strictQuery = `${gene}[gene] AND (${searchTerms.map((t) => `${t}[variant name]`).join(' OR ')})`;
+  const strictQuery = `(${geneClause}) AND (${searchTerms.map((t) => `${t}[variant name]`).join(' OR ')})`;
   const strictUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${encodeURIComponent(strictQuery)}&retmode=json&retmax=40`;
 
-  console.log(`[ClinVar] Searching: ${gene} with terms ${searchTerms.join(', ')}`);
+  console.log(`[ClinVar] Searching: genes=[${geneTerms.join(', ')}] with terms ${searchTerms.join(', ')}`);
 
   const strictResult = await fetchWithRetry<any>(strictUrl, {
     circuitBreakerKey: 'clinvar',
@@ -465,7 +498,7 @@ async function searchClinVar(gene: string, proteinChange: string): Promise<Fetch
   }
 
   // Fallback: broader text query for aliases/legacy formatting (e.g., KRAS G12D).
-  const broadQuery = `${gene}[gene] AND (${searchTerms.map((t) => `"${t}"`).join(' OR ')})`;
+  const broadQuery = `(${geneClause}) AND (${searchTerms.map((t) => `"${t}"`).join(' OR ')})`;
   const broadUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${encodeURIComponent(broadQuery)}&retmode=json&retmax=40`;
   const broadResult = await fetchWithRetry<any>(broadUrl, {
     circuitBreakerKey: 'clinvar',
