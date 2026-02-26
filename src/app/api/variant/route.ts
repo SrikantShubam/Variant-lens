@@ -298,6 +298,12 @@ export async function POST(request: NextRequest) {
         originalHgvs: hgvs,
         normalizedHgvs: normalizedInput,
         transcript: normalizedVariant.parsed.transcript,
+        variantType: normalizedVariant.parsed.type === 'nonsense'
+          ? 'stop-gain'
+          : normalizedVariant.parsed.type,
+        significance: normalizedVariant.parsed.type === 'nonsense'
+          ? 'Pathogenic (nonsense)'
+          : undefined,
         gene: curatedInfo.gene,
         residue: residueNumber,
         isValidPosition: true,

@@ -122,10 +122,11 @@ export const UNKNOWN_MESSAGES = {
   NO_STRUCTURE: 'No experimental or predicted structure available',
   NO_CLINICAL: 'No clinical significance annotation in ClinVar',
   OUTSIDE_DOMAIN: 'Variant position is outside annotated protein domains',
+  NO_DOMAIN_ANNOTATION: 'No domain annotations available from UniProt/Pfam/Gene3D for this protein',
   NO_LITERATURE: 'No variant-specific literature found',
   LARGE_PROTEIN: 'Protein too large for complete structural coverage',
   UNRESOLVED_REGION: 'Variant falls in unresolved region of available structures',
-  NO_FUNCTIONAL_SITE: 'No annotated functional sites near variant',
+  NO_FUNCTIONAL_SITE: 'No curated active/binding site annotation near this variant in UniProt',
   MAPPING_NOT_COMPUTED: 'Structure residue mapping not yet computed',
 } as const;
 
@@ -140,6 +141,8 @@ export interface HonestAPIResponse {
     originalHgvs?: string; // Explicit requested input
     normalizedHgvs?: string; // Canonical form (Gene:p.RefPosAlt)
     transcript?: string;   // Transcript if detected
+    variantType?: string;  // High-level type, e.g. missense/stop-gain/frameshift
+    significance?: string; // Optional deterministic significance note for specific classes
     gene: string;
     residue: number;
     isValidPosition: boolean;
@@ -165,6 +168,8 @@ export interface HonestReportData {
     originalHgvs?: string;
     normalizedHgvs?: string;
     transcript?: string;
+    variantType?: string;
+    significance?: string;
     gene: string;
     residue: number;
   };

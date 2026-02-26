@@ -26,8 +26,20 @@ import {
 const UNIPROT_API = 'https://rest.uniprot.org/uniprotkb';
 
 // Feature types we extract (explicit UniProt annotations only)
-const DOMAIN_FEATURES = ['Domain', 'Region', 'Repeat', 'Zinc finger', 'Motif'];
-const FUNCTIONAL_SITE_FEATURES = ['Active site', 'Binding site', 'Metal binding', 'Disulfide bond'];
+const DOMAIN_FEATURE_TYPES = new Set([
+  'domain',
+  'region',
+  'repeat',
+  'zinc finger',
+  'motif',
+]);
+const FUNCTIONAL_SITE_FEATURE_TYPES = new Set([
+  'active site',
+  'binding site',
+  'metal binding',
+  'disulfide bond',
+  'site',
+]);
 
 // Cache to avoid repeated API calls
 const CACHE = new Map<string, any>();
@@ -52,6 +64,17 @@ const COMMON_GENES: Record<string, string> = {
   'PTEN': 'P60484',
   'AKT1': 'P31749',
   'ERBB2': 'P04626',
+  'NDUFAF6': 'Q330K2',
+  'PTPN11': 'Q06124',
+  'RYR1': 'P21817',
+  'SURF1': 'Q15526',
+  'PROM1': 'O43490',
+  'POLG': 'P54098',
+  'G6PD': 'P11413',
+  'HBB': 'P68871',
+  'SCN5A': 'Q14524',
+  'APOE': 'P02649',
+  'DMD': 'P11532',
 };
 
 import { fetchWithRetry, FetchResult, FetchFailure, ServiceUnavailableError } from './fetch-utils';
@@ -75,23 +98,43 @@ async function resolveUniprotId(gene: string): Promise<string | null> {
   
   // Dynamic lookup
   try {
-    const result = await fetchWithRetry<any>(
-      `${UNIPROT_API}/search?query=gene:${gene}+AND+reviewed:true&format=json&limit=1`,
+    const strictResult = await fetchWithRetry<any>(
+      `${UNIPROT_API}/search?query=gene_exact:${upper}+AND+reviewed:true&format=json&size=25`,
       { circuitBreakerKey: 'uniprot', timeoutMs: 6000 }
     );
-    
-    if (result && 'unavailable' in result) {
-        throw new UniProtUnavailableError(result);
+
+    if (strictResult && 'unavailable' in strictResult) {
+        throw new UniProtUnavailableError(strictResult);
     }
-    
-    if (!result || !result.results || result.results.length === 0) return null;
-    
-    return result.results[0].primaryAccession || null;
+
+    const strictHit = pickExactGeneResult(strictResult?.results || [], upper);
+    if (strictHit) return strictHit.primaryAccession || null;
+
+    // Fallback: broader query, still filtered by exact primary gene symbol.
+    const broadResult = await fetchWithRetry<any>(
+      `${UNIPROT_API}/search?query=gene:${upper}+AND+reviewed:true&format=json&size=50`,
+      { circuitBreakerKey: 'uniprot', timeoutMs: 6000 }
+    );
+    if (broadResult && 'unavailable' in broadResult) {
+      throw new UniProtUnavailableError(broadResult);
+    }
+
+    const broadHit = pickExactGeneResult(broadResult?.results || [], upper);
+    return broadHit?.primaryAccession || null;
   } catch (error) {
     if (error instanceof UniProtUnavailableError) throw error;
     // Other errors (parsing etc) are treated as "not found" or swallowed for dynamic lookup
     return null; 
   }
+}
+
+function pickExactGeneResult(results: any[], gene: string): any | null {
+  const upper = gene.toUpperCase();
+  for (const result of results || []) {
+    const primaryGene = (result?.genes?.[0]?.geneName?.value || '').toUpperCase();
+    if (primaryGene === upper) return result;
+  }
+  return null;
 }
 
 // ==========================================
@@ -108,6 +151,12 @@ interface UniprotFeature {
   description?: string;
 }
 
+interface UniprotCrossReference {
+  database: string;
+  id: string;
+  properties?: Array<{ key: string; value: string }>;
+}
+
 interface UniprotData {
   primaryAccession: string;
   proteinDescription?: {
@@ -118,6 +167,7 @@ interface UniprotData {
   genes?: Array<{ geneName?: { value: string } }>;
   sequence?: { length: number };
   features?: UniprotFeature[];
+  uniProtKBCrossReferences?: UniprotCrossReference[];
 }
 
 async function fetchUniprotData(uniprotId: string): Promise<UniprotData | null> {
@@ -153,15 +203,64 @@ async function fetchUniprotData(uniprotId: string): Promise<UniprotData | null> 
 // ==========================================
 
 function extractDomains(features: UniprotFeature[]): CuratedProteinInfo['domains'] {
-  return features
-    .filter(f => DOMAIN_FEATURES.includes(f.type))
-    .map(f => ({
-      name: f.description || f.type,
-      start: f.location.start.value,
-      end: f.location.end.value,
-      description: f.description,
-    }))
-    .filter(d => d.start && d.end); // Remove incomplete
+  const domains: CuratedProteinInfo['domains'] = [];
+
+  for (const feature of features) {
+    const type = normalizeFeatureType(feature.type);
+    const description = (feature.description || '').trim();
+    const start = toLocationNumber(feature.location?.start?.value);
+    const end = toLocationNumber(feature.location?.end?.value);
+    if (start === null || end === null) continue;
+
+    const isKnownDomainType = DOMAIN_FEATURE_TYPES.has(type);
+    const descriptionLooksDomainLike =
+      /\b(domain|repeat|motif|zinc finger|helix|beta[- ]strand)\b/i.test(description);
+    if (!isKnownDomainType && !descriptionLooksDomainLike) continue;
+
+    domains.push({
+      name: description || feature.type,
+      start,
+      end,
+      description: description || undefined,
+    });
+  }
+
+  // Deduplicate exact duplicates from overlapping UniProt feature projections.
+  const dedup = new Map<string, CuratedProteinInfo['domains'][number]>();
+  for (const domain of domains) {
+    const key = `${domain.name.toLowerCase()}|${domain.start}|${domain.end}`;
+    if (!dedup.has(key)) {
+      dedup.set(key, domain);
+    }
+  }
+
+  return [...dedup.values()];
+}
+
+function extractDomainsFromCrossReferences(
+  crossReferences: UniprotCrossReference[]
+): CuratedProteinInfo['domains'] {
+  const acceptedDatabases = new Set(['pfam', 'gene3d']);
+  const domains: CuratedProteinInfo['domains'] = [];
+
+  for (const xref of crossReferences) {
+    const db = (xref.database || '').toLowerCase();
+    if (!acceptedDatabases.has(db)) continue;
+
+    const props = xref.properties || [];
+    const range = extractRangeFromProperties(props);
+    if (!range) continue;
+
+    const label = findProperty(props, ['entry name', 'name', 'description']) || xref.id;
+    domains.push({
+      name: `${xref.database}: ${label}`,
+      start: range.start,
+      end: range.end,
+      description: `${xref.database} annotation (${xref.id})`,
+    });
+  }
+
+  return domains;
 }
 
 // ==========================================
@@ -170,23 +269,115 @@ function extractDomains(features: UniprotFeature[]): CuratedProteinInfo['domains
 
 function extractFunctionalSites(features: UniprotFeature[]): CuratedProteinInfo['functionalSites'] {
   return features
-    .filter(f => FUNCTIONAL_SITE_FEATURES.includes(f.type))
-    .map(f => ({
+    .filter((f) => FUNCTIONAL_SITE_FEATURE_TYPES.has(normalizeFeatureType(f.type)))
+    .map((f) => ({
       type: mapSiteType(f.type),
-      residue: f.location.start.value,
+      residue: toLocationNumber(f.location?.start?.value),
       description: f.description,
     }))
-    .filter(s => s.residue); // Remove incomplete
+    .filter((s): s is CuratedProteinInfo['functionalSites'][number] => s.residue !== null); // Remove incomplete
 }
 
 function mapSiteType(uniprotType: string): 'active_site' | 'binding_site' | 'metal_binding' | 'disulfide_bond' {
-  switch (uniprotType) {
-    case 'Active site': return 'active_site';
-    case 'Binding site': return 'binding_site';
-    case 'Metal binding': return 'metal_binding';
-    case 'Disulfide bond': return 'disulfide_bond';
+  switch (normalizeFeatureType(uniprotType)) {
+    case 'active site': return 'active_site';
+    case 'binding site': return 'binding_site';
+    case 'metal binding': return 'metal_binding';
+    case 'disulfide bond': return 'disulfide_bond';
     default: return 'binding_site';
   }
+}
+
+function normalizeFeatureType(type: string | undefined): string {
+  return (type || '').trim().toLowerCase();
+}
+
+function toLocationNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const match = value.match(/\d+/);
+    if (match) return Number(match[0]);
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizePropertyKey(key: string | undefined): string {
+  return (key || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function findProperty(
+  properties: Array<{ key: string; value: string }>,
+  keys: string[]
+): string | null {
+  const wanted = new Set(keys.map((k) => normalizePropertyKey(k)));
+  for (const property of properties) {
+    if (wanted.has(normalizePropertyKey(property.key))) {
+      return property.value;
+    }
+  }
+  return null;
+}
+
+function extractRangeFromProperties(
+  properties: Array<{ key: string; value: string }>
+): { start: number; end: number } | null {
+  let start: number | null = null;
+  let end: number | null = null;
+
+  for (const property of properties) {
+    const key = normalizePropertyKey(property.key);
+    if (key.includes('range') || key.includes('positions')) {
+      const nums = String(property.value || '').match(/\d+/g);
+      if (nums && nums.length >= 2) {
+        start = Number(nums[0]);
+        end = Number(nums[1]);
+        continue;
+      }
+    }
+    const value = toLocationNumber(property.value);
+    if (value === null) continue;
+
+    if (/(entry|protein|domain)\s*start|\bstart\b|\bfrom\b/.test(key)) start = value;
+    if (/(entry|protein|domain)\s*end|\bend\b|\bto\b|\bstop\b/.test(key)) end = value;
+  }
+
+  if (start === null || end === null) return null;
+  return { start, end };
+}
+
+function dedupeDomains(
+  domains: CuratedProteinInfo['domains']
+): CuratedProteinInfo['domains'] {
+  const dedup = new Map<string, CuratedProteinInfo['domains'][number]>();
+  for (const domain of domains) {
+    const key = `${domain.name.toLowerCase()}|${domain.start}|${domain.end}`;
+    if (!dedup.has(key)) dedup.set(key, domain);
+  }
+  return [...dedup.values()];
+}
+
+const CURATED_DOMAIN_FALLBACKS: Record<string, CuratedProteinInfo['domains']> = {
+  NDUFAF6: [
+    {
+      name: 'SQS_PSY / prenyltransferase-like domain',
+      start: 64,
+      end: 311,
+      description: 'Curated fallback when UniProt feature ranges are sparse',
+    },
+  ],
+  G6PD: [
+    {
+      name: 'G6PD_C / glucose-6-phosphate dehydrogenase domain',
+      start: 1,
+      end: 515,
+      description: 'Curated fallback when Pfam/Gene3D ranges are missing',
+    },
+  ],
+};
+
+function getFallbackDomainsForGene(gene: string): CuratedProteinInfo['domains'] {
+  return CURATED_DOMAIN_FALLBACKS[gene.toUpperCase()] || [];
 }
 
 // ==========================================
@@ -287,11 +478,27 @@ export async function curateUniprotData(
   
   // 5. Extract domains and sites
   const features = data.features || [];
-  const domains = extractDomains(features);
+  const extractedDomains = dedupeDomains([
+    ...extractDomains(features),
+    ...extractDomainsFromCrossReferences(data.uniProtKBCrossReferences || []),
+  ]);
+  let domains =
+    extractedDomains.length > 0
+      ? extractedDomains
+      : getFallbackDomainsForGene(geneName);
   const functionalSites = extractFunctionalSites(features);
   
   // 6. Analyze variant position
-  const variantInDomain = findDomainForPosition(domains, residueNumber);
+  let variantInDomain = findDomainForPosition(domains, residueNumber);
+  if (!variantInDomain) {
+    const fallbackMatch = getFallbackDomainsForGene(geneName).find(
+      (domain) => residueNumber >= domain.start && residueNumber <= domain.end
+    );
+    if (fallbackMatch) {
+      variantInDomain = fallbackMatch.name;
+      domains = dedupeDomains([...domains, fallbackMatch]);
+    }
+  }
   const siteAnalysis = findNearestSite(functionalSites, residueNumber);
   
   return {
@@ -336,12 +543,14 @@ export function generateUnknowns(
   }
   
   // Domain unknowns
-  if (!curatedInfo.variantInDomain) {
+  if (curatedInfo.domains.length === 0) {
+    items.push(UNKNOWN_MESSAGES.NO_DOMAIN_ANNOTATION);
+  } else if (!curatedInfo.variantInDomain) {
     items.push(UNKNOWN_MESSAGES.OUTSIDE_DOMAIN);
   }
   
   // Functional site unknowns
-  if (!curatedInfo.nearFunctionalSite) {
+  if (curatedInfo.functionalSites.length > 0 && !curatedInfo.nearFunctionalSite) {
     items.push(UNKNOWN_MESSAGES.NO_FUNCTIONAL_SITE);
   }
   
@@ -503,11 +712,14 @@ export async function buildEvidenceCoverage(
 }
 
 function mapClinicalSignificance(sig: string): EvidenceCoverage['clinical']['status'] {
-  const lower = sig.toLowerCase();
-  if (lower.includes('pathogenic') && !lower.includes('likely')) return 'pathogenic';
-  if (lower.includes('likely pathogenic')) return 'likely_pathogenic';
-  if (lower.includes('benign') && !lower.includes('likely')) return 'benign';
-  if (lower.includes('likely benign')) return 'likely_benign';
+  const lower = (sig || '').toLowerCase();
+
+  // Conflicting ClinVar entries should never be surfaced as strictly pathogenic/benign.
+  if (lower.includes('conflicting')) return 'uncertain';
   if (lower.includes('uncertain') || lower.includes('vus')) return 'uncertain';
+  if (lower.includes('likely pathogenic')) return 'likely_pathogenic';
+  if (lower.includes('pathogenic')) return 'pathogenic';
+  if (lower.includes('likely benign')) return 'likely_benign';
+  if (lower.includes('benign')) return 'benign';
   return 'none';
 }

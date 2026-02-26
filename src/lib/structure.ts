@@ -414,6 +414,17 @@ const COMMON_GENES: Record<string, string> = {
   'PIK3CA': 'P42336',
   'IDH1': 'O75874',
   'IDH2': 'P48735',
+  'NDUFAF6': 'Q330K2',
+  'PTPN11': 'Q06124',
+  'RYR1': 'P21817',
+  'SURF1': 'Q15526',
+  'PROM1': 'O43490',
+  'POLG': 'P54098',
+  'G6PD': 'P11413',
+  'HBB': 'P68871',
+  'SCN5A': 'Q14524',
+  'APOE': 'P02649',
+  'DMD': 'P11532',
 };
 
 async function fetchUniprotId(gene: string): Promise<string | null> {

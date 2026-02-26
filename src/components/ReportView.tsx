@@ -55,6 +55,80 @@ function StatusBadge({ status, label, tooltip }: { status: 'good' | 'warn' | 'no
   return tooltip ? <Tooltip text={tooltip}>{content}</Tooltip> : content;
 }
 
+function buildQuickContext(data: HonestReportData): string {
+  const { variant, coverage, curatedInfo } = data;
+  const parts: string[] = [];
+
+  if (coverage.domain.inAnnotatedDomain && coverage.domain.domainName) {
+    parts.push(`Residue ${variant.residue} sits in ${coverage.domain.domainName}.`);
+  } else if (curatedInfo.domains.length === 0) {
+    parts.push(`Domain annotations are currently sparse for ${variant.gene} in UniProt/Pfam/Gene3D.`);
+  } else {
+    parts.push(`Residue ${variant.residue} is outside current UniProt/Pfam/Gene3D domain annotations.`);
+  }
+
+  if (coverage.clinical.status !== 'none') {
+    const significance = coverage.clinical.significance || coverage.clinical.status.replace(/_/g, ' ');
+    const stars = typeof coverage.clinical.stars === 'number' ? ` (${coverage.clinical.stars}/4 stars)` : '';
+    parts.push(`ClinVar: ${significance}${stars}.`);
+  } else {
+    parts.push('No ClinVar classification found for this exact variant.');
+  }
+
+  if (coverage.structure.status === 'predicted') {
+    parts.push(`Only predicted structure is available (${coverage.structure.id || 'AlphaFold'}).`);
+  } else if (coverage.structure.status === 'experimental') {
+    parts.push(`Experimental structure is available (${coverage.structure.id || 'PDB'}).`);
+  } else {
+    parts.push('No structure currently available.');
+  }
+
+  parts.push(`Direct PubMed matches: ${coverage.literature.variantSpecificCount}.`);
+
+  const why = buildWhyItMatters(data);
+  if (why) parts.push(`Why it matters: ${why}`);
+
+  return parts.join(' ');
+}
+
+function buildWhyItMatters(data: HonestReportData): string | null {
+  const canonical = data.variant.normalizedHgvs || data.variant.hgvs || '';
+  const protein = canonical.match(/:p\.([A-Z*])(\d+)([A-Z*]+|fs|del|ins|dup)/i);
+  const ref = protein?.[1]?.toUpperCase();
+  const alt = protein?.[3]?.toUpperCase();
+  const domainName = (data.coverage.domain.domainName || '').toLowerCase();
+
+  if (data.variant.gene.toUpperCase() === 'NDUFAF6' && /(sqs|psy|prenyl)/.test(domainName)) {
+    return 'Residue lies in the SQS/PSY-like assembly core used for mitochondrial complex I biogenesis.';
+  }
+
+  if (alt === 'P' && data.coverage.domain.inAnnotatedDomain && data.coverage.domain.domainName) {
+    return `Proline is a helix-breaker; this can destabilize local structure inside ${data.coverage.domain.domainName}.`;
+  }
+
+  if (alt === 'FS' || alt === 'DEL' || alt === 'INS' || alt === 'DUP') {
+    return 'Indel/frameshift variants can alter sequence context beyond one residue and are often functionally disruptive.';
+  }
+
+  if (data.curatedInfo.nearFunctionalSite && data.curatedInfo.functionalSites.length > 0) {
+    const nearest = [...data.curatedInfo.functionalSites]
+      .sort((a, b) => Math.abs(a.residue - data.variant.residue) - Math.abs(b.residue - data.variant.residue))[0];
+    const distance = Math.abs(nearest.residue - data.variant.residue);
+    const distanceText = distance === 0 ? 'at' : distance === 1 ? 'adjacent to' : `${distance} residues from`;
+    const label = nearest.description || nearest.type.replace(/_/g, ' ');
+    if ((label || '').toLowerCase().includes('zinc')) {
+      return `Variant is ${distanceText} a zinc-coordinating site (${label}).`;
+    }
+    return `Variant is ${distanceText} a curated functional site (${label}).`;
+  }
+
+  if (ref && alt && data.coverage.domain.inAnnotatedDomain) {
+    return `Substitution ${ref}->${alt} occurs inside an annotated domain, so local functional effects are plausible.`;
+  }
+
+  return null;
+}
+
 // ==========================================
 // MAIN COMPONENT
 // ==========================================
@@ -62,6 +136,12 @@ function StatusBadge({ status, label, tooltip }: { status: 'good' | 'warn' | 'no
 export default function ReportView({ data }: ReportViewProps) {
   const { variant, coverage, unknowns, curatedInfo } = data;
   const canonicalHgvs = variant.normalizedHgvs || variant.hgvs;
+  const reportDate = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  }).format(new Date(data.timestamp || Date.now()));
+  const quickContext = buildQuickContext(data);
   
   const [copyStatus, setCopyStatus] = React.useState<'idle' | 'copied' | 'error'>('idle');
 
@@ -72,10 +152,6 @@ export default function ReportView({ data }: ReportViewProps) {
 
   // Derived Structure Data
   const availableStructures = coverage.structure.availableStructures || [];
-  
-  // DEBUG: Log available structures on client
-  console.log('[ReportView] DEBUG - availableStructures:', availableStructures);
-  console.log('[ReportView] DEBUG - coverage.structure:', coverage.structure);
   
   // Find currently selected structure data
   // Logic: 
@@ -215,7 +291,7 @@ export default function ReportView({ data }: ReportViewProps) {
          <div className="flex flex-wrap items-center gap-3 md:gap-4 mt-0 font-mono text-xs text-gray-400">
              <span>{variant.gene}</span>
              <span>|</span>
-             <span>{new Date().toLocaleDateString()}</span>
+             <span>{reportDate}</span>
          </div>
       </div>
 
@@ -253,6 +329,11 @@ export default function ReportView({ data }: ReportViewProps) {
         </motion.div>
       )}
 
+      <div className="mb-8 p-4 sm:p-6 rounded-xl border border-white/10 bg-white/5">
+        <h3 className="font-mono text-xs text-muted uppercase tracking-widest mb-2">Quick Context</h3>
+        <p className="text-sm text-gray-300 break-words leading-relaxed">{quickContext}</p>
+      </div>
+
       {/* BENTO GRID */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 auto-rows-[minmax(160px,auto)]">
         
@@ -266,7 +347,7 @@ export default function ReportView({ data }: ReportViewProps) {
               status={coverage.structure.status === 'experimental' ? 'good' : coverage.structure.status === 'predicted' ? 'warn' : 'none'}
               label={
                 coverage.structure.status === 'none' 
-                  ? '❌ No Structure' 
+                  ? 'No structure' 
                   : coverage.structure.sifts?.mapped
                     ? `${coverage.structure.source} ${coverage.structure.id} (Chain ${coverage.structure.sifts.chain}:${coverage.structure.sifts.pdbResidue})`
                     : `${coverage.structure.source} ${coverage.structure.id || ''}`
@@ -276,7 +357,9 @@ export default function ReportView({ data }: ReportViewProps) {
                   ? `Mapped via SIFTS (Source: ${coverage.structure.sifts.source}). Visualizes residue ${coverage.structure.sifts.pdbResidue} on Chain ${coverage.structure.sifts.chain}.`
                   : coverage.structure.status !== 'none' && coverage.structure.source === 'PDB'
                     ? "Residue mapping not available via SIFTS. Structure may be truncated or disordered in this region."
-                    : undefined
+                    : coverage.structure.status === 'predicted'
+                      ? 'Predicted structure only. Use the PAE view to assess local confidence.'
+                      : undefined
               }
             />
             {/* ClinVar Status - Phase-2 */}
@@ -291,7 +374,7 @@ export default function ReportView({ data }: ReportViewProps) {
                 <span className="text-sm text-gray-300 break-words leading-snug">
                   {coverage.clinical.significance || coverage.clinical.status}
                   {coverage.clinical.stars !== undefined && (
-                    <span className="text-yellow-400 ml-1">{'★'.repeat(coverage.clinical.stars)}{'☆'.repeat(4 - coverage.clinical.stars)}</span>
+                    <span className="text-yellow-400 ml-1">[{coverage.clinical.stars}/4 stars]</span>
                   )}
                 </span>
                 <ExternalLink className="w-3 h-3 text-gray-500" />
@@ -299,17 +382,21 @@ export default function ReportView({ data }: ReportViewProps) {
             ) : (
               <StatusBadge 
                 status={'none'}
-                label={'❌ No ClinVar Data'}
+                label={'No ClinVar data'}
               />
             )}
             <StatusBadge 
-              status={coverage.domain.inAnnotatedDomain ? 'good' : 'none'}
+              status={coverage.domain.inAnnotatedDomain ? 'good' : curatedInfo.domains.length === 0 ? 'warn' : 'none'}
               label={coverage.domain.domainName 
-                ? `Domain (UniProt): ${coverage.domain.domainName}` 
-                : '❌ Outside Domains'}
+                ? `Domain annotation: ${coverage.domain.domainName}` 
+                : curatedInfo.domains.length === 0
+                  ? 'No domain annotations'
+                  : 'Outside domains'}
               tooltip={coverage.domain.domainName 
                 ? "Domain presence alone does not imply functional or clinical impact." 
-                : undefined}
+                : curatedInfo.domains.length === 0
+                  ? 'No domain range annotations are currently available from UniProt/Pfam/Gene3D for this protein.'
+                  : undefined}
             />
             {coverage.literature.variantSpecificCount > 0 ? (
               <a 
@@ -328,14 +415,14 @@ export default function ReportView({ data }: ReportViewProps) {
             ) : (
               <StatusBadge 
                 status={'none'}
-                label={'❌ No Papers Found'}
+                label={'No papers found'}
                 tooltip={`Search Query: ${coverage.literature.query || 'None'}\n\nCount reflects PubMed Title/Abstract matches.`}
               />
             )}
           </div>
           {coverage.structure.note && (
             <p className="text-xs text-yellow-400/70 mt-4 italic">
-              ⚠️ {coverage.structure.note}
+              Note: {coverage.structure.note}
             </p>
           )}
         </div>
@@ -489,3 +576,4 @@ export default function ReportView({ data }: ReportViewProps) {
     </motion.div>
   );
 }
+

@@ -13,7 +13,8 @@
     "test:unit": "jest src/lib/__tests__",
     "test:integration": "jest src/app/api/__tests__",
     "test:validation": "jest --testPathPattern='validation/__tests__'",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "golden:suite": "npx --yes tsx src/validation/golden-suite.ts"
   },
   "dependencies": {
     "@types/jszip": "^3.4.0",

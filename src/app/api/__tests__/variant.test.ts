@@ -24,9 +24,19 @@ describe('POST /api/variant', () => {
     expect(response.status).toBe(200);
     // Route normalizes variant to short form
     expect(response.body).toHaveProperty('variant');
-    expect(response.body.variant).toMatch(/BRCA1:p\.(C61G|Cys61Gly)/);
+    expect(response.body.variant.normalizedHgvs).toMatch(/BRCA1:p\.(C61G|Cys61Gly)/);
     expect(response.body).toHaveProperty('coverage');
     expect(response.body).toHaveProperty('unknowns');
+  });
+
+  it('detects UniProt domains even when feature types are uppercase', async () => {
+    const response = await request(server)
+      .post('/api/variant')
+      .send({ hgvs: 'TP53:p.Arg175His' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.coverage?.domain?.inAnnotatedDomain).toBe(true);
+    expect((response.body.coverage?.domain?.domainName || '').toLowerCase()).toContain('dna');
   });
 
   it('returns 400 for invalid HGVS', async () => {

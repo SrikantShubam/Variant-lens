@@ -34,13 +34,17 @@ export const FIXTURES = {
     primaryAccession: "P04637",
     uniProtId: "P53_HUMAN",
     genes: [{ geneName: { value: "TP53" } }],
-    sequence: { sequence: "MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGP..." },
+    sequence: {
+      length: 393,
+      sequence: "MEEPQSDPSVEPPLSQETFSDLWKLLPENNVLSPLPSQAMDDLMLSPDDIEQWFTEDPGP..."
+    },
     comments: [
       { commentType: "FUNCTION", text: [{ value: "Tumor suppressor protein." }] }
     ],
     features: [
       { type: "DOMAIN", description: "P53 DNA-binding", location: { start: { value: 102 }, end: { value: 292 } } }
-    ]
+    ],
+    uniProtKBCrossReferences: []
   },
   PUBMED: {
     SEARCH: {

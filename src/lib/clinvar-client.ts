@@ -443,39 +443,68 @@ function parseInputToAllele(gene: string, proteinChange: string): ParsedAllele |
 /**
  * Search ClinVar for a variant
  */
-async function searchClinVar(gene: string, proteinChange: string): Promise<any> {
-  // Extract clean protein part (e.g. "Val600Glu") for search
-  // This avoids searching for "NM_004333:p.Val600Glu" which fails
-  const cleanChange = extractProteinPart(proteinChange);
+async function searchClinVar(gene: string, proteinChange: string): Promise<FetchResult<any>> {
+  const searchTerms = buildClinVarVariantTerms(proteinChange);
 
-  if (!cleanChange) {
-      // Fallback: use original string if we can't parse it (unlikely to work but safe)
-      console.warn(`[ClinVar] Could not extract protein part from: ${proteinChange}`);
-  }
-  
-  const searchTerm = cleanChange || proteinChange;
-  
-  // Build search query
-  // We search for: GENE AND (ProteinChange OR OriginalInput)
-  // This covers specific syntax "p.Val600Glu" vs "Val600Glu"
-  const query = encodeURIComponent(
-    `${gene}[gene] AND (${searchTerm}[variant name] OR ${proteinChange}[variant name])`
-  );
-  
-  // RETMAX 20 to catch strict matches that might be buried
-  const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${query}&retmode=json&retmax=20`;
-  
-  console.log(`[ClinVar] Searching: ${gene} ${proteinChange}`);
-  
-  const response = await fetch(url, {
-    headers: { 'Accept': 'application/json' },
+  const strictQuery = `${gene}[gene] AND (${searchTerms.map((t) => `${t}[variant name]`).join(' OR ')})`;
+  const strictUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${encodeURIComponent(strictQuery)}&retmode=json&retmax=40`;
+
+  console.log(`[ClinVar] Searching: ${gene} with terms ${searchTerms.join(', ')}`);
+
+  const strictResult = await fetchWithRetry<any>(strictUrl, {
+    circuitBreakerKey: 'clinvar',
+    timeoutMs: 8000
   });
 
-  if (!response.ok) {
-    throw new Error(`ClinVar search failed: ${response.status}`);
+  if (strictResult && 'unavailable' in strictResult) {
+    return strictResult;
   }
 
-  return response.json();
+  if (strictResult?.esearchresult?.idlist?.length > 0) {
+    return strictResult;
+  }
+
+  // Fallback: broader text query for aliases/legacy formatting (e.g., KRAS G12D).
+  const broadQuery = `${gene}[gene] AND (${searchTerms.map((t) => `"${t}"`).join(' OR ')})`;
+  const broadUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=${encodeURIComponent(broadQuery)}&retmode=json&retmax=40`;
+  const broadResult = await fetchWithRetry<any>(broadUrl, {
+    circuitBreakerKey: 'clinvar',
+    timeoutMs: 8000
+  });
+
+  return broadResult;
+}
+
+function buildClinVarVariantTerms(proteinChange: string): string[] {
+  const terms = new Set<string>();
+
+  const cleaned = extractProteinPart(proteinChange);
+  if (cleaned) {
+    const parsed = cleaned.match(/^([A-Za-z]{1,3})(\d+)([A-Za-z]{1,3}|Ter|\*|fs|del|ins|dup)/i);
+    if (parsed) {
+      const [, rawRef, posStr, rawAlt] = parsed;
+      const refOne = rawRef.length === 1 ? rawRef.toUpperCase() : AMINO_ACIDS[rawRef[0].toUpperCase() + rawRef.slice(1).toLowerCase()];
+      const altOne = rawAlt.length === 1 ? rawAlt.toUpperCase() : AMINO_ACIDS[rawAlt[0].toUpperCase() + rawAlt.slice(1).toLowerCase()];
+      const refThree = rawRef.length === 1 ? toThreeLetter(rawRef.toUpperCase()) : rawRef;
+      const altThree = rawAlt.length === 1 ? toThreeLetter(rawAlt.toUpperCase()) : rawAlt;
+      const pos = posStr;
+
+      terms.add(`p.${rawRef}${pos}${rawAlt}`);
+      terms.add(`${rawRef}${pos}${rawAlt}`);
+
+      if (refOne && altOne) {
+        terms.add(`p.${refOne}${pos}${altOne}`);
+        terms.add(`${refOne}${pos}${altOne}`);
+      }
+      if (refThree && altThree && !/(fs|del|ins|dup)/i.test(rawAlt)) {
+        terms.add(`p.${refThree}${pos}${altThree}`);
+        terms.add(`${refThree}${pos}${altThree}`);
+      }
+    }
+  }
+
+  terms.add(proteinChange);
+  return [...terms];
 }
 
 /**
