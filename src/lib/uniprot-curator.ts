@@ -278,14 +278,22 @@ function extractDomainsFromCrossReferences(
 // ==========================================
 
 function extractFunctionalSites(features: UniprotFeature[]): CuratedProteinInfo['functionalSites'] {
-  return features
-    .filter((f) => FUNCTIONAL_SITE_FEATURE_TYPES.has(normalizeFeatureType(f.type)))
-    .map((f) => ({
-      type: mapSiteType(f.type),
-      residue: toLocationNumber(f.location?.start?.value),
-      description: f.description,
-    }))
-    .filter((s): s is CuratedProteinInfo['functionalSites'][number] => s.residue !== null); // Remove incomplete
+  const sites: CuratedProteinInfo['functionalSites'] = [];
+
+  for (const feature of features) {
+    if (!FUNCTIONAL_SITE_FEATURE_TYPES.has(normalizeFeatureType(feature.type))) continue;
+
+    const residue = toLocationNumber(feature.location?.start?.value);
+    if (residue === null) continue; // Skip incomplete/non-numeric residues.
+
+    sites.push({
+      type: mapSiteType(feature.type),
+      residue,
+      description: feature.description,
+    });
+  }
+
+  return sites;
 }
 
 function mapSiteType(uniprotType: string): 'active_site' | 'binding_site' | 'metal_binding' | 'disulfide_bond' {
