@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
+import Script from 'next/script'
 import './globals.css'
 import { clsx } from 'clsx'
 import { PostHogProvider, PostHogPageView } from '@/components/PostHogProvider'
@@ -23,13 +24,18 @@ const jetbrainsMono = JetBrains_Mono({
   display: 'swap',
 })
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://variant-lens.vercel.app'
+const siteTitle = 'VariantLens'
+const siteDescription =
+  'Structure-aware evidence briefing for genetic variants, built for research workflows.'
+
 export const metadata: Metadata = {
-  metadataBase: new URL('https://variantlens.open'),
+  metadataBase: new URL(siteUrl),
   title: {
-    default: 'VariantLens-Open',
-    template: '%s | VariantLens-Open',
+    default: siteTitle,
+    template: `%s | ${siteTitle}`,
   },
-  description: 'Structure-aware evidence briefing for genetic variant research.',
+  description: siteDescription,
   keywords: [
     'genetic variants',
     'bioinformatics',
@@ -41,16 +47,25 @@ export const metadata: Metadata = {
     'ClinVar',
   ],
   openGraph: {
-    title: 'VariantLens-Open',
-    description: 'Structure-aware evidence briefing for genetic variant research.',
-    url: 'https://variantlens.open',
-    siteName: 'VariantLens-Open',
+    title: siteTitle,
+    description: siteDescription,
+    url: siteUrl,
+    siteName: siteTitle,
     type: 'website',
+    images: [
+      {
+        url: '/opengraph-image',
+        width: 1200,
+        height: 630,
+        alt: 'VariantLens',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'VariantLens-Open',
-    description: 'Structure-aware evidence briefing for genetic variant research.',
+    title: siteTitle,
+    description: siteDescription,
+    images: ['/opengraph-image'],
   },
   robots: {
     index: true,
@@ -69,6 +84,12 @@ export default function RootLayout({
   return (
     <html lang="en" className={clsx(inter.variable, spaceGrotesk.variable, jetbrainsMono.variable)}>
       <body className="font-sans antialiased">
+        <Script
+          defer
+          src="https://cloud.umami.is/script.js"
+          data-website-id="c8201937-4b8b-4daa-974a-86e37485d4e2"
+          strategy="afterInteractive"
+        />
         <PostHogProvider>
           <Suspense fallback={null}>
             <PostHogPageView />
